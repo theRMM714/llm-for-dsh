@@ -133,6 +133,34 @@ test('the embedded catalog drives decoding, and unknown ids are dropped', () => 
   assert.deepEqual(decoded.enabled, ['responses-reasoning-echo'])
   assert.deepEqual(decoded.hosts, ['Relay.Example'])
   assert.equal(decoded.diagnostics, true)
+  assert.equal(decoded.recentTurns, 0)
+  assert.equal(decoded.singleReasoningSlot, false)
+  const options = loaded.exports.decodeSection({ recentTurns: 2, singleReasoningSlot: true })
+  assert.equal(options.recentTurns, 2)
+  assert.equal(options.singleReasoningSlot, true)
+})
+
+test('each declared fix option renders one control', () => {
+  const loaded = loadBundle(SOURCE)
+  const { ctx, calls } = fakeContext()
+  loaded.exports.apply(ctx)
+  const tree = calls.registered.component()
+  const rendered = tree.children[0].type({
+    scope: { getSnapshot: () => ({ mode: 'host', value: {} }), subscribe: () => () => {} },
+  })
+  const classes = []
+  const walk = (node) => {
+    if (node === null || typeof node !== 'object') return
+    if (Array.isArray(node)) {
+      for (const child of node) walk(child)
+      return
+    }
+    if (typeof node.props?.className === 'string') classes.push(node.props.className)
+    walk(node.children)
+  }
+  walk(rendered)
+  assert.equal(classes.filter((name) => name.includes('llm-compat-subrow')).length, 2)
+  assert.equal(classes.filter((name) => name.includes('llm-compat-number')).length, 1)
 })
 
 test('activation binds the shared namespace and registers the settings page', () => {

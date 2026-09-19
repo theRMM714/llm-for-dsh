@@ -18,6 +18,23 @@ test('an empty document resolves through the schema defaults', () => {
   assert.deepEqual([...resolved.enabled], [...DEFAULT_ENABLED])
   assert.deepEqual([...resolved.hosts], [])
   assert.equal(resolved.diagnostics, false)
+  assert.equal(resolved.recentTurns, 0)
+  assert.equal(resolved.singleReasoningSlot, false)
+})
+
+test('the two token-saving options fold to safe values', () => {
+  assert.equal(normalizeSettings({ recentTurns: 3 }).recentTurns, 3)
+  assert.equal(normalizeSettings({ recentTurns: 0 }).recentTurns, 0)
+  assert.equal(normalizeSettings({ recentTurns: -2 }).recentTurns, 0)
+  assert.equal(normalizeSettings({ recentTurns: 1.5 }).recentTurns, 0)
+  assert.equal(normalizeSettings({ recentTurns: '3' }).recentTurns, 0)
+  assert.equal(normalizeSettings({ singleReasoningSlot: true }).singleReasoningSlot, true)
+  assert.equal(normalizeSettings({ singleReasoningSlot: 'yes' }).singleReasoningSlot, false)
+  // Both are independent, so both may be on at once.
+  const both = normalizeSettings({ recentTurns: 1, singleReasoningSlot: true })
+  assert.equal(both.recentTurns, 1)
+  assert.equal(both.singleReasoningSlot, true)
+  assert.deepEqual([...both.enabled], [...DEFAULT_ENABLED])
 })
 
 test('a stored document keeps the values it sets', () => {

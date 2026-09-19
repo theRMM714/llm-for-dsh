@@ -112,18 +112,26 @@ function reasoningTextOf(item) {
  * A minimal reasoning item carrying recovered thinking text.
  *
  * No `id` is invented: ids are provider-minted, and a wrong one is rejected
- * where a missing one is often tolerated. Both the summary and the plain content
- * part are filled, because a gateway that names `reasoning_text` in its error
- * reads the content part while the UI-facing schema reads the summary.
+ * where a missing one is often tolerated.
+ *
+ * By default BOTH text slots are filled — the schema's summary and the plain
+ * `reasoning_text` part — because the refusal this fix answers names the latter
+ * while the presentation schema reads the former, and the doubled copy is the
+ * price of not knowing which one a particular gateway validates.
+ * `singleReasoningSlot` drops the summary copy, halving the injected text at the
+ * cost of that insurance.
  *
  * @param text - non-empty thinking text.
+ * @param options - `{ singleReasoningSlot }`.
  * @returns one reasoning item.
  */
-export function synthesizeReasoningItem(text) {
+export function synthesizeReasoningItem(text, options = {}) {
+  const content = [{ type: REASONING_TEXT_PART, text }]
+  if (options.singleReasoningSlot === true) return { type: 'reasoning', content }
   return {
     type: 'reasoning',
     summary: [{ type: SUMMARY_TEXT_PART, text }],
-    content: [{ type: REASONING_TEXT_PART, text }],
+    content,
   }
 }
 
@@ -135,17 +143,25 @@ function cloneJson(value) {
 /**
  * The reasoning items to inject for one stash payload, or an empty list.
  *
+ * A captured item is the gateway's OWN item, so under `singleReasoningSlot` it is
+ * replayed exactly as it was sent — no invented content part, which is both the
+ * smaller and the more faithful choice.
+ *
  * @param payload - `{ items?, text? }` recorded for this turn.
- * @returns reasoning items, freshly cloned and text-complete.
+ * @param options - `{ singleReasoningSlot }`.
+ * @returns reasoning items, freshly cloned.
  */
-export function reasoningItemsFor(payload) {
+export function reasoningItemsFor(payload, options = {}) {
   if (payload === null || typeof payload !== 'object') return []
   if (Array.isArray(payload.items) && payload.items.length > 0) {
     const items = payload.items.map(cloneItem).filter((item) => item !== undefined)
-    if (items.length > 0) return items.map((item) => withReasoningText(item, payload.text))
+    if (items.length > 0) {
+      if (options.singleReasoningSlot === true) return items
+      return items.map((item) => withReasoningText(item, payload.text))
+    }
   }
   if (typeof payload.text === 'string' && payload.text.trim().length > 0) {
-    return [synthesizeReasoningItem(payload.text)]
+    return [synthesizeReasoningItem(payload.text, options)]
   }
   return []
 }
@@ -200,7 +216,9 @@ function cloneItem(item) {
  * order, and the very thing a gateway validates when it complains that the
  * thinking was not passed back.
  *
- * @param context - `{ stash }`, the turn-to-reasoning index.
+ * @param context - `{ stash, recentTurns?, singleReasoningSlot? }`. `recentTurns`
+ *   bounds the work to the newest N assistant turns (0 or absent means every turn),
+ *   which is what keeps a long session from re-sending megabytes of old thinking.
  * @returns how many reasoning items were inserted.
  */
 export function rewrite(body, context) {
@@ -243,10 +261,14 @@ export function rewrite(body, context) {
     output.push(item)
   }
 
+  const options = { singleReasoningSlot: context?.singleReasoningSlot === true }
+  const recent = Number.isInteger(context?.recentTurns) && context.recentTurns > 0 ? context.recentTurns : 0
+  const candidates = recent === 0 ? turns : turns.slice(-recent)
+
   // Inject newest first, so a `start` recorded earlier stays valid.
-  for (const turn of [...turns].reverse()) {
+  for (const turn of [...candidates].reverse()) {
     if (turn.hasReasoning || turn.callId === undefined) continue
-    const injected = reasoningItemsFor(stash.lookup(turn.callId))
+    const injected = reasoningItemsFor(stash.lookup(turn.callId), options)
     if (injected.length === 0) continue
     output.splice(turn.start, 0, ...injected)
     inserted += injected.length
@@ -334,4 +356,23 @@ export const metadata = {
     'pi-ai 的 Responses 分支只回传带签名的思考项，于是带工具调用的续轮被网关以 400 拒绝。' +
     '本修复只改写 /responses 请求，且在已有思考项时不动作。',
   defaultEnabled: false,
+  /**
+   * Options this fix reads, rendered by the settings page from this declaration
+   * rather than from hard-coded copy, so a new option is one entry here.
+   */
+  options: [
+    {
+      id: 'recentTurns',
+      kind: 'number',
+      title: '只回放最近 N 轮思考',
+      hint: '0 = 不限（当前行为）。长会话里注入量按窗口内降级轮数增长，每步重发；填 1 通常就够，能把它从约 1 MB 降到几 KB。',
+      min: 0,
+    },
+    {
+      id: 'singleReasoningSlot',
+      kind: 'boolean',
+      title: '思考项只写一个文本槽',
+      hint: '默认同时写 summary 与 reasoning_text（保险，但文本翻倍）。开启后合成项只写 reasoning_text，捕获到的原始项原样回放，注入文本约减半。',
+    },
+  ],
 }

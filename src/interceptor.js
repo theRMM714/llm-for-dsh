@@ -238,7 +238,11 @@ export function createWriter(options) {
         if (fix === undefined) continue
         try {
           if (fix.requestMatcher(url, body) !== true) continue
-          const count = fix.rewrite(body, { stash })
+          const count = fix.rewrite(body, {
+            stash,
+            recentTurns: settings.recentTurns,
+            singleReasoningSlot: settings.singleReasoningSlot,
+          })
           if (count > 0) changed.push(id + '(' + String(count) + ')')
         } catch (error) {
           log('fix ' + id + ' threw for ' + url + ': ' + describe(error))

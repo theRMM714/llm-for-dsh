@@ -28,13 +28,13 @@ node scripts/link-dev-deps.mjs /path/to/@deepseek-ai/dsh
 
 | 文件 | 覆盖 | 类型 |
 | --- | --- | --- |
-| `test/fix-responses.test.mjs` | 端点匹配、插入位置与幂等、并行工具调用每轮只插一次、轮次边界重置、捕获项优先且为克隆、合成项形状与不伪造 id、响应观察者（逐项事件与终态回落、异常事件容忍） | 单元 |
+| `test/fix-responses.test.mjs` | 端点匹配、**注入位置在轮次开头**、幂等、并行工具调用每轮只插一次、轮次边界重置、捕获项优先且为克隆、合成项形状与不伪造 id、**`recentTurns` 只保留最新 N 轮**、**`singleReasoningSlot` 只写一个槽且与原样回放捕获项**、响应观察者（逐项事件与终态回落、异常事件容忍） | 单元 |
 | `test/stash.test.mjs` | 复合 call id 归约、记录／查找、空载荷不入库、TTL 过期、容量淘汰、harness 提取（文本 + call id + 重放签名）、畸形输入 | 单元 |
 | `test/interceptor.test.mjs` | 关闭时不改一个字节、方法／body 形状闸门、主机闸门与域名归一化、命中改写、未知 id 忽略、修复项抛错被包含、SSE 解析（流在缺少结束空行时仍交付最后一条事件、非事件流不捕获）、目录默认关闭 | 单元 |
-| `test/settings.test.mjs` | 空文档经 schema 取默认值、存储值保留、未知 id 丢弃、畸形分节回落、主机归一化 | 单元 |
+| `test/settings.test.mjs` | 空文档经 schema 取默认值、存储值保留、未知 id 丢弃、畸形分节回落、主机归一化、两个省流选项的折叠（非整数/负数/字符串回落到安全值，且互不影响可同时开启） | 单元 |
 | `test/host.test.mjs` | 命名空间注册（含 schema 与 `applies: 'live'`）、`llm/stream` 监听挂载、拦截器安装与卸载还原、观察失败不影响下游流、设置实时采用、无设置服务仍能激活 | 集成（假 ctx） |
 | `test/integration.test.mjs` | 本地假网关：无拦截器时复刻 400；启用后历史文本路径修复并返回 200；捕获项路径逐字节回传 | 端到端（进程内 HTTP） |
-| `test/client.test.mjs` | 浏览器半以 `__ModuleLoader__` 载入、注册名与服务声明、目录驱动的解码、设置页注册与渲染、缺设置服务／缺 slot 账本时的降级、求值期抛错降级为空操作 | 集成（假模块加载器） |
+| `test/client.test.mjs` | 浏览器半以 `__ModuleLoader__` 载入、注册名与服务声明、目录驱动的解码、设置页注册与渲染、**每个声明的修复选项渲染出一个控件**、缺设置服务／缺 slot 账本时的降级、求值期抛错降级为空操作 | 集成（假模块加载器） |
 | `test/lib-current.test.mjs` | 包名一致、构建覆盖到修复目录、嵌入目录内容、`lib/` 与新建构逐字节一致、构建确定性 | 构建 |
 
 ## 尚未覆盖（如实记录）

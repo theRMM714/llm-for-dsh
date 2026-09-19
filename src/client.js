@@ -114,6 +114,8 @@ window.__ModuleLoader__.load({
           enabled: [...CATALOG.defaults.enabled],
           hosts: [...CATALOG.defaults.hosts],
           diagnostics: CATALOG.defaults.diagnostics === true,
+          recentTurns: 0,
+          singleReasoningSlot: false,
         }
         if (section === null || typeof section !== 'object' || Array.isArray(section)) return fallback
         const known = new Set(CATALOG.fixes.map((fix) => fix.id))
@@ -125,6 +127,8 @@ window.__ModuleLoader__.load({
             ? section.hosts.filter((host) => typeof host === 'string' && host.trim().length > 0)
             : [...CATALOG.defaults.hosts],
           diagnostics: section.diagnostics === true,
+          recentTurns: Number.isInteger(section.recentTurns) && section.recentTurns > 0 ? section.recentTurns : 0,
+          singleReasoningSlot: section.singleReasoningSlot === true,
         }
       }
 
@@ -191,6 +195,8 @@ window.__ModuleLoader__.load({
         const [writeError, setWriteError] = React.useState(null)
         /** The host field is edited as TEXT and written on blur: one write per keystroke would queue a mutation for every character. */
         const [hostsDraft, setHostsDraft] = React.useState(null)
+        /** Number options are edited as text and written on blur, for the same reason. */
+        const [numericDraft, setNumericDraft] = React.useState({})
 
         const stored = decodeSection(snapshot.value)
         const value = draft ?? stored
@@ -220,6 +226,74 @@ window.__ModuleLoader__.load({
           const next = value.diagnostics !== true
           setDraft({ ...value, diagnostics: next })
           commit('diagnostics', next)
+        }
+
+        /**
+         * Write one number option, clamped to its minimum; an unparsable entry
+         * falls back to 0 (which means "no bound" for the options that have one).
+         */
+        const commitNumber = (option, current) => {
+          const raw = numericDraft[option.id]
+          if (raw === undefined) return
+          setNumericDraft({ ...numericDraft, [option.id]: undefined })
+          const parsed = Number.parseInt(String(raw), 10)
+          const next = Number.isInteger(parsed) && parsed > 0 ? parsed : 0
+          if (next === current) return
+          setDraft({ ...value, [option.id]: next })
+          commit(option.id, next)
+        }
+
+        /**
+         * One control for one declared fix option.
+         *
+         * The copy comes from the fix's own `options` entry in the embedded
+         * catalog, so a new option is one declaration in the fix and nothing here.
+         */
+        const optionRow = (option) => {
+          const current = value[option.id]
+          if (option.kind === 'number') {
+            return React.createElement(
+              'div',
+              { className: 'llm-compat-subrow', key: option.id },
+              React.createElement(
+                'span',
+                { className: 'llm-compat-body' },
+                React.createElement('span', { className: 'llm-compat-name' }, option.title),
+                React.createElement('span', { className: 'llm-compat-hint' }, option.hint),
+              ),
+              React.createElement('input', {
+                type: 'number',
+                min: option.min ?? 0,
+                step: 1,
+                className: 'llm-compat-number',
+                disabled: !editable,
+                value: numericDraft[option.id] ?? String(current ?? 0),
+                onChange: (event) => setNumericDraft({ ...numericDraft, [option.id]: event.target.value }),
+                onBlur: () => commitNumber(option, current),
+              }),
+            )
+          }
+          return React.createElement(
+            'label',
+            { className: 'llm-compat-subrow', key: option.id },
+            React.createElement('input', {
+              type: 'checkbox',
+              className: 'llm-compat-check',
+              checked: current === true,
+              disabled: !editable,
+              onChange: () => {
+                const next = current !== true
+                setDraft({ ...value, [option.id]: next })
+                commit(option.id, next)
+              },
+            }),
+            React.createElement(
+              'span',
+              { className: 'llm-compat-body' },
+              React.createElement('span', { className: 'llm-compat-name' }, option.title),
+              React.createElement('span', { className: 'llm-compat-hint' }, option.hint),
+            ),
+          )
         }
 
         const commitHosts = () => {
@@ -262,6 +336,7 @@ window.__ModuleLoader__.load({
                   React.createElement('span', { className: 'llm-compat-detail' }, fix.detail),
                 ),
               ),
+              (fix.options ?? []).map(optionRow),
             ),
           ),
           React.createElement(
@@ -374,10 +449,12 @@ window.__ModuleLoader__.load({
         '.llm-compat-card{display:flex;flex-direction:column;gap:10px;padding:14px 16px 16px;background:var(--dsw-alias-bg-layer-2);border:.5px solid var(--dsw-alias-border-l1);border-radius:12px}',
         '.llm-compat-row{display:flex;align-items:flex-start;gap:10px;min-height:32px;cursor:pointer}',
         '.llm-compat-check{margin-top:3px;flex:none}',
-        '.llm-compat-body{display:flex;flex-direction:column;gap:4px;min-width:0}',
+        '.llm-compat-body{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1 1 auto}',
         '.llm-compat-name{font-size:14px;font-weight:600;line-height:20px}',
         '.llm-compat-hint{margin:0;color:var(--dsw-alias-label-secondary);font-size:12.5px;line-height:19px}',
         '.llm-compat-detail{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}',
+        '.llm-compat-subrow{display:flex;align-items:flex-start;gap:10px;margin-left:26px;padding-top:8px;border-top:.5px dashed var(--dsw-alias-border-l1);cursor:pointer}',
+        '.llm-compat-number{width:88px;flex:none;padding:6px 8px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:.5px solid var(--dsw-alias-border-l1);border-radius:8px;font:inherit;font-size:12.5px}',
         '.llm-compat-hosts{width:100%;box-sizing:border-box;padding:8px 10px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:.5px solid var(--dsw-alias-border-l1);border-radius:8px;font:inherit;font-size:12.5px;line-height:18px;resize:vertical}',
       ].join('')
       /* @llm-compat-css-end */

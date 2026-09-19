@@ -1,0 +1,14 @@
+# 本包自带的补丁层：挂载这一行就是它的全部职责。
+#
+# 声明了 `dsh.bundle.patch` 的包在安装时会并入 profile 的层栈，因此
+# `dsh plugin --profile <name> add <spec>` 既装包也装载这一行，不需要手改 profile。
+# 行按 id 跨层寻址，用户自己的 profile 补丁最后应用，所以用户重述这一行是覆盖而不是冲突。
+#
+# `insert` 是补丁层唯一执行的动作。
+
+- insert:
+    # 开发刹车：设了 DSH_LLM_COMPAT_DISABLED=1 时整行不加载，
+    # 于是坏掉的插件只花掉一个环境变量，而不需要改文件。
+    - id: llm-compat
+      name: llm-for-dsh
+      disabled: !!js process.env.DSH_LLM_COMPAT_DISABLED === '1'

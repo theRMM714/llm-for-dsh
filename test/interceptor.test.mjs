@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { FIXES } from '../src/fixes/index.js'
-import { createWriter, hostAllowed, installFetchInterceptor, normalizeHosts } from '../src/interceptor.js'
+import { createWriter, describeRequestBody, hostAllowed, installFetchInterceptor, normalizeHosts } from '../src/interceptor.js'
 import { createStash } from '../src/stash.js'
 
 const RESPONSES = 'https://relay.example/v1/responses'
@@ -67,6 +67,28 @@ test('an enabled fix rewrites the matching request', () => {
   assert.deepEqual(result.changed, ['responses-reasoning-echo(1)'])
   const parsed = JSON.parse(result.body)
   assert.deepEqual(parsed.input.map((item) => item.type), ['reasoning', 'function_call'])
+})
+
+test('a rewrite reports a digest of the turns it sent', () => {
+  const stash = createStash()
+  stash.record(['call_1'], { text: 'thought' })
+  const { writer } = writerFor(['responses-reasoning-echo'], { stash })
+  const result = writer.rewriteRequest(RESPONSES, 'POST', JSON.stringify(bodyFor('call_1')))
+  assert.equal(result.digest.items, 2)
+  assert.deepEqual(result.digest.tail.map((entry) => entry.t), ['reasoning', 'function_call'])
+  assert.equal(result.digest.tail[0].id, 'none')
+  // The synthesized item carries the text in both schema slots, so the digest
+  // sums summary and content: 7 + 7.
+  assert.equal(result.digest.tail[0].text, 14)
+})
+
+test('the digest describes a chat-completions body too', () => {
+  assert.deepEqual(describeRequestBody({ messages: [{ role: 'user' }] }), {
+    items: 1,
+    tail: [{ t: 'user' }],
+  })
+  assert.equal(describeRequestBody({ nothing: true }), undefined)
+  assert.equal(describeRequestBody(null), undefined)
 })
 
 test('an unknown enabled id is ignored rather than fatal', () => {

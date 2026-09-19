@@ -192,6 +192,14 @@ function cloneItem(item) {
  * item covers every parallel tool call of that turn.
  *
  * @param body - the parsed request body; `input` is replaced when it changed.
+ * The reasoning item belongs at the START of its turn: the Responses protocol
+ * orders a turn's items as reasoning, then the assistant message, then the tool
+ * calls — which is exactly how pi-ai emits the ones it can replay itself. A fix
+ * that inserted the item just before the tool call leaves a turn that also has
+ * assistant text looking like `message, reasoning, function_call`: the wrong
+ * order, and the very thing a gateway validates when it complains that the
+ * thinking was not passed back.
+ *
  * @param context - `{ stash }`, the turn-to-reasoning index.
  * @returns how many reasoning items were inserted.
  */
@@ -201,26 +209,25 @@ export function rewrite(body, context) {
   if (stash === undefined) return 0
 
   const output = []
-  let reasoningSeen = false
+  /** One entry per assistant turn, in wire order; `start` indexes into `output`. */
+  const turns = []
+  let current = null
   let inserted = 0
 
   for (const item of body.input) {
     const type = item !== null && typeof item === 'object' ? item.type : undefined
 
     if (type === 'reasoning') {
-      reasoningSeen = true
+      if (current === null) current = openTurn(output, turns)
+      current.hasReasoning = true
       output.push(item)
       continue
     }
 
     if (typeof type === 'string' && TOOL_CALL_ITEM_TYPES.has(type)) {
-      if (!reasoningSeen && typeof item.call_id === 'string' && item.call_id.length > 0) {
-        const injected = reasoningItemsFor(stash.lookup(item.call_id))
-        if (injected.length > 0) {
-          output.push(...injected)
-          inserted += injected.length
-          reasoningSeen = true
-        }
+      if (current === null) current = openTurn(output, turns)
+      if (current.callId === undefined && typeof item.call_id === 'string' && item.call_id.length > 0) {
+        current.callId = item.call_id
       }
       output.push(item)
       continue
@@ -228,12 +235,32 @@ export function rewrite(body, context) {
 
     // Assistant text stays inside the turn; everything else ends it.
     const stays = type === 'message' && item?.role === 'assistant'
-    if (!stays) reasoningSeen = false
+    if (stays) {
+      if (current === null) current = openTurn(output, turns)
+    } else {
+      current = null
+    }
     output.push(item)
+  }
+
+  // Inject newest first, so a `start` recorded earlier stays valid.
+  for (const turn of [...turns].reverse()) {
+    if (turn.hasReasoning || turn.callId === undefined) continue
+    const injected = reasoningItemsFor(stash.lookup(turn.callId))
+    if (injected.length === 0) continue
+    output.splice(turn.start, 0, ...injected)
+    inserted += injected.length
   }
 
   if (inserted > 0) body.input = output
   return inserted
+}
+
+/** Record a turn whose items start at the current end of the output. */
+function openTurn(output, turns) {
+  const turn = { start: output.length, hasReasoning: false, callId: undefined }
+  turns.push(turn)
+  return turn
 }
 
 /**

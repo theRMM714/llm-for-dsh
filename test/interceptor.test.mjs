@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { FIXES } from '../src/fixes/index.js'
-import { createWriter, hostAllowed, normalizeHosts } from '../src/interceptor.js'
+import { createWriter, hostAllowed, installFetchInterceptor, normalizeHosts } from '../src/interceptor.js'
 import { createStash } from '../src/stash.js'
 
 const RESPONSES = 'https://relay.example/v1/responses'
@@ -125,6 +125,46 @@ test('nothing is captured when no fix is enabled or the body is not a stream', (
   const { writer } = writerFor(['responses-reasoning-echo'])
   const plain = new Response('{}', { headers: { 'content-type': 'application/json' } })
   assert.equal(writer.startCapture(RESPONSES, plain), undefined)
+})
+
+test('a refused request reports its status and the exact body that was sent', async () => {
+  // The interceptor captures the downstream fetch when it installs, so the stub
+  // goes in first; disposal then puts the stub back and this test restores the
+  // real one itself.
+  const realFetch = globalThis.fetch
+  const stash = createStash()
+  stash.record(['call_1'], { text: 'thought' })
+  const rejections = []
+  const lines = []
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ message: 'The reasoning_text in the thinking mode must be passed back to the API.' }), {
+      status: 400,
+      headers: { 'content-type': 'application/json' },
+    })
+  const dispose = installFetchInterceptor({
+    resolveSettings: () => settingsOf(['responses-reasoning-echo']),
+    stash,
+    log: (line) => lines.push(line),
+    onRejection: (record) => rejections.push(record),
+  })
+  try {
+    await globalThis.fetch(RESPONSES, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(bodyFor('call_1')),
+    })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  } finally {
+    dispose()
+    globalThis.fetch = realFetch
+  }
+  assert.equal(rejections.length, 1)
+  assert.equal(rejections[0].status, 400)
+  assert.deepEqual(rejections[0].changed, ['responses-reasoning-echo(1)'])
+  assert.match(rejections[0].responseBody, /reasoning_text/)
+  const rewritten = JSON.parse(rejections[0].requestBody)
+  assert.deepEqual(rewritten.input.map((item) => item.type), ['reasoning', 'function_call'])
+  assert.ok(lines.some((line) => /resp 400/.test(line)), 'the outcome is logged: ' + lines.join(' | '))
 })
 
 test('the shipped catalog keeps the fix off by default', () => {

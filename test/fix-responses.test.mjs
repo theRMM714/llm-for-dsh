@@ -107,14 +107,42 @@ test('the rewrite is idempotent', () => {
   assert.equal(rewrite(body, { stash }), 0)
 })
 
-test('a captured item is replayed verbatim, as a clone', () => {
+test('a captured item keeps its identity and gains the thinking text the gateway asks for', () => {
   const item = { type: 'reasoning', id: 'rs_9', summary: [{ type: 'summary_text', text: 'original' }] }
   const stash = createStash()
-  stash.record(['call_1'], { items: [item], text: 'fallback' })
+  stash.record(['call_1'], { items: [item], text: 'recovered text' })
+  const body = { input: [...turn('call_1')] }
+  assert.equal(rewrite(body, { stash }), 1)
+  const injected = body.input[0]
+  assert.notEqual(injected, item)
+  assert.equal(injected.id, 'rs_9')
+  assert.deepEqual(injected.summary, item.summary)
+  assert.deepEqual(injected.content, [{ type: 'reasoning_text', text: 'recovered text' }])
+  // The recorded item is never aliased into a request.
+  assert.equal('content' in item, false)
+})
+
+test('a captured item that already carries thinking text is left as the gateway sent it', () => {
+  const item = {
+    type: 'reasoning',
+    id: 'rs_10',
+    summary: [{ type: 'summary_text', text: 'short' }],
+    content: [{ type: 'reasoning_text', text: 'the full thinking' }],
+  }
+  const stash = createStash()
+  stash.record(['call_1'], { items: [item], text: 'recovered text' })
+  const body = { input: [...turn('call_1')] }
+  rewrite(body, { stash })
+  assert.deepEqual(body.input[0], item)
+})
+
+test('a captured item with no recoverable text is still injected unchanged', () => {
+  const item = { type: 'reasoning', id: 'rs_11', summary: [{ type: 'summary_text', text: 'only summary' }] }
+  const stash = createStash()
+  stash.record(['call_1'], { items: [item] })
   const body = { input: [...turn('call_1')] }
   assert.equal(rewrite(body, { stash }), 1)
   assert.deepEqual(body.input[0], item)
-  assert.notEqual(body.input[0], item)
 })
 
 test('the synthesized item carries both schema slots and invents no id', () => {

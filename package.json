@@ -1,0 +1,80 @@
+{
+  "name": "llm-for-dsh",
+  "description": "DeepSeek Harness 的 LLM 请求兼容修复插件：用可插拔的修复项改写发往模型的请求体，解决第三方网关要求的思考内容回传等兼容问题；设置页里逐项勾选启用，官方修复落地后可整包删除",
+  "type": "module",
+  "_comment": "文档与界面都不出现版本号：npm 需要 version 才能发布，注册表需要范围才能解析，但代码从不读它。src/ 是唯一事实来源，lib/ 入库是为了从 git 安装时不需要构建步骤（pnpm 把构建脚本锁在逐提交的 allowBuilds 键后面）。",
+  "version": "0.0.1",
+  "license": "MIT",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "src/**/*.js",
+    "scripts/**/*.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "DESIGN.md",
+    "TESTING.md",
+    "PITFALLS.md"
+  ],
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "cordis",
+    "plugin",
+    "llm",
+    "compat",
+    "reasoning"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/build.mjs --check",
+    "link": "node scripts/link-dev-deps.mjs",
+    "pretest": "node scripts/link-dev-deps.mjs",
+    "test": "node --test --test-isolation=none --test-timeout=30000 \"test/*.test.mjs\""
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-client-ui-settings": "*",
+    "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/dsh-settings": "*",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "_peers": "这里的每个 peer 都由 harness 提供，且不在公共 registry 上：它们随 @deepseek-ai/dsh 嵌套发布，npm 无法解析，所以全部可选——这正是抑制 'issues with peer dependencies found' 警告的方式；dsh 的加载器在运行时解析它们。",
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-settings": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-llm": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-settings": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  }
+}

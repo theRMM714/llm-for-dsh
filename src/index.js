@@ -52,6 +52,10 @@ export const Config = z.object({
   enabled: z.array(z.string()).default([...DEFAULT_ENABLED]).description('已启用的兼容修复项 id。'),
   hosts: z.array(z.string()).default([]).description('只对这些主机生效；留空表示所有主机。'),
   diagnostics: z.boolean().default(false).description('把每次改写写入诊断日志。'),
+  /** 只回放最近 N 轮思考；0 表示不限。长会话里注入量按降级轮数增长并每步重发。 */
+  recentTurns: z.number().default(0).description('只回放最近 N 轮思考；0 表示不限。'),
+  /** 思考项只写一个文本槽；关闭时同时写 summary 与 reasoning_text（保险但翻倍）。 */
+  singleReasoningSlot: z.boolean().default(false).description('思考项只写一个文本槽。'),
 })
 
 /**
@@ -75,6 +79,8 @@ export function normalizeSettings(value) {
     enabled,
     hosts: normalizeHosts(input.hosts),
     diagnostics: input.diagnostics === true,
+    recentTurns: Number.isInteger(input.recentTurns) && input.recentTurns > 0 ? input.recentTurns : 0,
+    singleReasoningSlot: input.singleReasoningSlot === true,
   }
 }
 

@@ -185,6 +185,41 @@ test('the synthesized item carries both schema slots and invents no id', () => {
   assert.equal('id' in item, false)
 })
 
+test('recentTurns bounds the work to the newest turns', () => {
+  const stash = createStash()
+  stash.record(['call_1'], { text: 'first' })
+  stash.record(['call_2'], { text: 'second' })
+  stash.record(['call_3'], { text: 'third' })
+  const build = () => ({ input: [...turn('call_1'), ...turn('call_2'), ...turn('call_3')] })
+
+  const all = build()
+  assert.equal(rewrite(all, { stash }), 3)
+  const bounded = build()
+  assert.equal(rewrite(bounded, { stash, recentTurns: 1 }), 1)
+  const injected = bounded.input.filter((item) => item.type === 'reasoning')
+  assert.equal(injected.length, 1)
+  assert.equal(injected[0].content[0].text, 'third')
+  // 0 means every turn, which is the behaviour with no bound at all.
+  const zero = build()
+  assert.equal(rewrite(zero, { stash, recentTurns: 0 }), 3)
+})
+
+test('singleReasoningSlot halves the synthesized text and replays captured items as sent', () => {
+  const stash = createStash()
+  stash.record(['call_1'], { text: 'thought' })
+  const body = { input: [...turn('call_1')] }
+  assert.equal(rewrite(body, { stash, singleReasoningSlot: true }), 1)
+  assert.deepEqual(body.input[0], { type: 'reasoning', content: [{ type: 'reasoning_text', text: 'thought' }] })
+  assert.equal('summary' in body.input[0], false)
+
+  const item = { type: 'reasoning', id: 'rs_9', summary: [{ type: 'summary_text', text: 'original' }] }
+  const captured = createStash()
+  captured.record(['call_1'], { items: [item], text: 'recovered' })
+  const second = { input: [...turn('call_1')] }
+  rewrite(second, { stash: captured, singleReasoningSlot: true })
+  assert.deepEqual(second.input[0], item)
+})
+
 test('the observer records the reasoning item and the call ids of one response', () => {
   const observer = createResponseObserver()
   observer.feed({ type: 'response.output_item.done', item: { type: 'reasoning', id: 'rs_1', summary: [{ type: 'summary_text', text: '想' }] } })

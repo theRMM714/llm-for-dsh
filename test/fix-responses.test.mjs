@@ -45,6 +45,36 @@ test('the matcher owns only the Responses endpoint', () => {
   assert.equal(observes('https://relay.example/v1/chat/completions'), false)
 })
 
+test('the reasoning item lands at the start of the turn, before the assistant text', () => {
+  // Wire order for one turn: reasoning, assistant message, function_call. A fix
+  // that inserted immediately before the tool call would produce message,
+  // reasoning, function_call — the order a gateway rejects.
+  const body = {
+    input: [
+      { type: 'function_call', call_id: 'call_1', name: 'read', arguments: '{}' },
+      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'working on it' }] },
+      { type: 'function_call_output', call_id: 'call_1', output: 'ok' },
+    ],
+  }
+  const stash = stashWithText(['call_1'], 'thought')
+  assert.equal(rewrite(body, { stash }), 1)
+  assert.deepEqual(body.input.map((item) => item.type), ['reasoning', 'function_call', 'message', 'function_call_output'])
+})
+
+test('an assistant message that opens a turn keeps the reasoning item before it', () => {
+  const body = {
+    input: [
+      { type: 'message', role: 'user', content: [] },
+      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'text first' }] },
+      { type: 'function_call', call_id: 'call_1', name: 'read', arguments: '{}' },
+    ],
+  }
+  const stash = stashWithText(['call_1'], 'thought')
+  assert.equal(rewrite(body, { stash }), 1)
+  assert.deepEqual(body.input.map((item) => item.type), ['message', 'reasoning', 'message', 'function_call'])
+  assert.equal(body.input[1].type, 'reasoning')
+})
+
 test('injects the recovered reasoning text before the tool call', () => {
   const body = { model: 'm', input: [{ type: 'message', role: 'user', content: [] }, ...turn('call_1')] }
   const inserted = rewrite(body, { stash: stashWithText(['call_1'], '先想一下') })

@@ -143,6 +143,54 @@ function finishSse(state, onEvent) {
   flushSse(state, onEvent)
 }
 
+/** Total thinking text carried by one reasoning item. */
+function reasoningTextLength(item) {
+  const parts = []
+  if (Array.isArray(item.summary)) parts.push(...item.summary)
+  if (Array.isArray(item.content)) parts.push(...item.content)
+  return parts.reduce((total, part) => total + (typeof part?.text === 'string' ? part.text.length : 0), 0)
+}
+
+/**
+ * A compact structural description of one outgoing body.
+ *
+ * A rejected body is megabytes of conversation, and the useful part is the SHAPE
+ * of its last turns: which items they carry, in what order, and whether the
+ * thinking text is present. This digest is small enough to read at a glance and
+ * survives even when the raw body is truncated, so an intermittent rejection can
+ * be compared turn by turn.
+ *
+ * @param body - the parsed request body that is about to be sent.
+ * @returns `{ items, tail }` for the last turns, or undefined for an unknown shape.
+ */
+export function describeRequestBody(body) {
+  if (body === null || typeof body !== 'object') return undefined
+  const list = Array.isArray(body.input) ? body.input : Array.isArray(body.messages) ? body.messages : undefined
+  if (list === undefined) return undefined
+  const describe = (item) => {
+    if (item === null || typeof item !== 'object') return { t: typeof item }
+    const type = item.type ?? item.role ?? 'unknown'
+    if (type === 'reasoning') {
+      return {
+        t: 'reasoning',
+        id: typeof item.id === 'string' && item.id.length > 0 ? 'provider' : 'none',
+        parts: Array.isArray(item.content) ? item.content.map((part) => part?.type).join('+') : '',
+        text: reasoningTextLength(item),
+      }
+    }
+    if (TOOL_CALL_TYPES.has(String(type))) return { t: type, call_id: item.call_id, name: item.name }
+    if (type === 'function_call_output') return { t: 'function_call_output', call_id: item.call_id }
+    if (type === 'message' && Array.isArray(item.content)) {
+      return { t: 'message', role: item.role, parts: item.content.map((part) => part?.type).join('+') }
+    }
+    return { t: type }
+  }
+  return { items: list.length, tail: list.slice(-24).map(describe) }
+}
+
+/** Item types that answer with a tool call. */
+const TOOL_CALL_TYPES = new Set(['function_call', 'custom_tool_call'])
+
 /** A copy of one Headers-ish value with `content-length` dropped. */
 function withoutContentLength(headers) {
   const copy = new Headers(headers ?? {})
@@ -197,8 +245,9 @@ export function createWriter(options) {
         }
       }
       if (changed.length === 0) return undefined
-      log('rewrote ' + url + ' via ' + changed.join(', '))
-      return { body: JSON.stringify(body), changed }
+      const serialized = JSON.stringify(body)
+      log('rewrote ' + url + ' via ' + changed.join(', ') + ' (' + String(serialized.length) + ' bytes)')
+      return { body: serialized, changed, digest: describeRequestBody(body) }
     },
 
     /**
@@ -398,7 +447,14 @@ export function installFetchInterceptor(options) {
             // An unreadable error body still leaves the request body to inspect.
           }
           try {
-            onRejection({ url: resolved.url, status, changed, requestBody: sentBody, responseBody })
+            onRejection({
+              url: resolved.url,
+              status,
+              changed,
+              requestBody: sentBody,
+              responseBody,
+              digest: rewritten?.digest,
+            })
           } catch (error) {
             log('rejection dump failed: ' + describe(error))
           }

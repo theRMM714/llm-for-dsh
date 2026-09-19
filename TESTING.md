@@ -49,5 +49,5 @@ node scripts/link-dev-deps.mjs /path/to/@deepseek-ai/dsh
 2. 装进 Profile，重启 dsh web，设置页出现「LLM 兼容性修复」；
 3. 勾选 `responses-reasoning-echo`，在「生效主机范围」填入失败路由的主机（例：`relay.example`），打开诊断日志；
 4. 在该路由上跑一次「思考 + 工具调用 → 续轮」：修复前稳定 400，勾选后应完成；
-5. 检查 `$DSH_HOME/llm-compat.log`：每请求一行 `rewrote ... via responses-reasoning-echo(n)`，每响应一行 `resp <status> ...`；若出现 400，`llm-compat-rejected.jsonl` 会多出一条记录，内含状态、网关原文与**当次发出的完整请求体**（超过 256 KiB 截断并标注）。这是判断网关到底反对哪一项的唯一直接证据；
+5. 检查 `$DSH_HOME/llm-compat.log`：每请求一行 `rewrote ... via responses-reasoning-echo(n, N bytes)`，每响应一行 `resp <status> ...`；若出现 400，`llm-compat-rejected.jsonl` 会多出一条记录：网关原文、请求体的**头部**（256 KiB）与**尾部**（64 KiB，最新轮次在这里）、以及一份逐项结构摘要 `requestDigest`（末尾 24 项的类型、call_id、思考文本长度）。定位形状问题看摘要即可，不必读全文；
 6. 取消勾选，确认同一会话回到 400，且 `llm-compat.log` 不再增长。

@@ -22,13 +22,17 @@ body 变长之后必须丢掉调用方可能自带的 `content-length`（否则 
 
 pi-ai 把工具调用编码成 `<call id>|<item id>`（item id 在跨模型时会被丢弃，因为在 Responses 协议里 `fc_*` 与 `rs_*` 的配对校验会拒绝它），而线格式里的 `call_id` 是竖线之前的那半。索引两侧统一归约，否则同一次调用在两侧对不上。
 
+## 5.0 思考项必须放在轮次开头，而不是工具调用之前
+
+Responses 协议里一轮的顺序是 `reasoning → message(assistant) → function_call`，pi-ai 自己回放时就是这个顺序。只想着「补在 `function_call` 前面」会漏掉一种常见轮次：助手既说话又调用工具（`reasoning+text+tool-call`），补进去就变成 `message → reasoning → function_call`——顺序错误，而网关校验的正是这个配对。因此 `rewrite` 先按轮次切分，再插到该轮的起点。
+
 ## 5.1 网关回传的思考项可能没有 `reasoning_text` 内容槽
 
 实测某个 Responses 中继回传的思考项形如 `{ id, summary: [{ text, type: "summary_text" }], type: "reasoning" }`：有 `id` 和 `summary`，但**没有** `content` 数组，也就没有报错原文点名的 `reasoning_text`。因此原样回放捕获项并不一定满足网关的检查；修复项里的 `withReasoningText` 在保留 `id`/`summary` 的同时，把恢复到的思考文本补进 `content: [{ type: "reasoning_text" }]`，已有该槽的项不动、没有文本可补的项也不动。
 
-## 5.2 间歇性 400 必须有报文才能定位
+## 5.2 间歇性 400 必须有报文 + 尾部才能定位
 
-同一个会话里 6 个请求成功、第 7 个被拒，只靠汇总日志无法判断差异：网关反对的是某一项的具体形状，而不是「有没有思考项」。因此拦截器在状态码 ≥ 400 时会把**当次实际发出的请求体**（截断 256 KiB，仅诊断开启时）写入 `llm-compat-rejected.jsonl`。没有这份报文，任何形状层面的修改都是猜测。
+同一个会话里 6 个请求成功、第 7 个被拒，只靠汇总日志无法判断差异：网关反对的是某一项的具体形状，而不是「有没有思考项」。因此拦截器在状态码 ≥ 400 时会把**当次实际发出的请求体**写入 `llm-compat-rejected.jsonl`：头部 256 KiB、尾部 64 KiB，外加末尾 24 项的逐项摘要。只存头部是不够的——要定位的是最新那一轮的形状，而它恰好在尾部。没有这份记录，任何形状层面的修改都是猜测。
 
 ## 6. 不要凭空造 reasoning item 的 id
 

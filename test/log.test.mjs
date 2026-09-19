@@ -59,6 +59,26 @@ test('a rejection record keeps the status, the answer and the exact sent body', 
   }
 })
 
+test('a rejection keeps the tail and the structural digest of the newest turns', () => {
+  const home = scratch()
+  try {
+    const log = createDiagnosticLog({ path: join(home, 'llm-compat.log'), enabled: true })
+    const body = 'H'.repeat(200) + 'TAIL-MARKER'
+    log.dumpRejection({
+      url: 'u',
+      status: 400,
+      requestBody: body,
+      digest: { items: 2, tail: [{ t: 'reasoning', text: 5 }, { t: 'function_call', call_id: 'c' }] },
+    })
+    const record = JSON.parse(readFileSync(join(home, 'llm-compat-rejected.jsonl'), 'utf8').trim())
+    assert.match(record.requestTail, /TAIL-MARKER$/)
+    assert.equal(record.requestTailTruncated, false)
+    assert.deepEqual(record.requestDigest.tail[1], { t: 'function_call', call_id: 'c' })
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test('an oversized body is truncated and says so', () => {
   const home = scratch()
   try {

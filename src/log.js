@@ -32,6 +32,15 @@ export function defaultLogPath(env = process.env) {
 export const MAX_REJECTED_BODY_CHARS = 262144
 
 /**
+ * Largest TAIL of a refused body stored beside the head.
+ *
+ * The head says how the history began; only the tail holds the newest turn, which
+ * is the turn a thinking-mode gateway validates and the one whose shape has to be
+ * compared against the head.
+ */
+export const MAX_REJECTED_TAIL_CHARS = 65536
+
+/**
  * Create the log.
  *
  * @param options - optional path, initial state and clock, for tests.
@@ -95,6 +104,9 @@ export function createDiagnosticLog(options = {}) {
         requestBodyLength: body.length,
         requestBodyTruncated: body.length > MAX_REJECTED_BODY_CHARS,
         requestBody: body.slice(0, MAX_REJECTED_BODY_CHARS),
+        requestTailTruncated: body.length > MAX_REJECTED_TAIL_CHARS,
+        requestTail: body.slice(-MAX_REJECTED_TAIL_CHARS),
+        requestDigest: record?.digest,
       }
       try {
         appendFileSync(rejectedPath, JSON.stringify(entry) + '\n')

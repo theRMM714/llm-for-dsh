@@ -36,7 +36,7 @@ dsh plugin --profile <profile> add github:theRMM714/llm-for-dsh
 | --- | --- |
 | 每个修复项一个复选框 | 勾选即启用该项改写；取消即完全恢复原生请求 |
 | 生效主机范围 | 只对这些主机改写（域名或 URL，每行一个）。留空表示所有主机——混用官方直连路由时建议填入中继域名，例如 `relay.example` |
-| 诊断日志 | 把每次改写与捕获写进 Host 的 `llm-compat.log`，用于核对网关到底收到了什么 |
+| 诊断日志 | 把每次改写、捕获与响应状态写进 Host 的 `llm-compat.log`；请求被网关拒绝时，还会把**当时发出去的完整请求体**写进同目录的 `llm-compat-rejected.jsonl`，用于核对网关到底反对哪一项 |
 
 写入命名空间 `llm-compat`；配置面只有三个字段：`enabled`（修复 id 列表）、`hosts`、`diagnostics`。
 

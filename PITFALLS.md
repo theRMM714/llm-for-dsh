@@ -22,6 +22,14 @@ body 变长之后必须丢掉调用方可能自带的 `content-length`（否则 
 
 pi-ai 把工具调用编码成 `<call id>|<item id>`（item id 在跨模型时会被丢弃，因为在 Responses 协议里 `fc_*` 与 `rs_*` 的配对校验会拒绝它），而线格式里的 `call_id` 是竖线之前的那半。索引两侧统一归约，否则同一次调用在两侧对不上。
 
+## 5.1 网关回传的思考项可能没有 `reasoning_text` 内容槽
+
+实测某个 Responses 中继回传的思考项形如 `{ id, summary: [{ text, type: "summary_text" }], type: "reasoning" }`：有 `id` 和 `summary`，但**没有** `content` 数组，也就没有报错原文点名的 `reasoning_text`。因此原样回放捕获项并不一定满足网关的检查；修复项里的 `withReasoningText` 在保留 `id`/`summary` 的同时，把恢复到的思考文本补进 `content: [{ type: "reasoning_text" }]`，已有该槽的项不动、没有文本可补的项也不动。
+
+## 5.2 间歇性 400 必须有报文才能定位
+
+同一个会话里 6 个请求成功、第 7 个被拒，只靠汇总日志无法判断差异：网关反对的是某一项的具体形状，而不是「有没有思考项」。因此拦截器在状态码 ≥ 400 时会把**当次实际发出的请求体**（截断 256 KiB，仅诊断开启时）写入 `llm-compat-rejected.jsonl`。没有这份报文，任何形状层面的修改都是猜测。
+
 ## 6. 不要凭空造 reasoning item 的 id
 
 reasoning item 的 `id` 由提供方铸造。伪造一个比留空更容易被网关拒绝，因此合成项只带 `summary` 与 `content` 文本槽，不带 `id`；能用响应捕获到的原始 item 时优先逐字节回传。

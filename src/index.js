@@ -159,6 +159,12 @@ export function setup(ctx, entry = {}) {
         resolveSettings: () => state.current,
         stash,
         log: (line) => log.write(line),
+        onRejection: (record) => {
+          const path = log.dumpRejection(record)
+          if (path !== undefined) {
+            log.write('refused ' + String(record.status) + ' ' + String(record.url) + ' -> ' + path)
+          }
+        },
       }),
     'llm-compat: outbound interceptor',
   )

@@ -21,6 +21,7 @@
  * @module llm-for-dsh/interceptor
  */
 import { FIXES } from './fixes/index.js'
+import { retryById } from './retries/index.js'
 
 /** Request methods that can carry a model request body. */
 const REWRITABLE_METHOD = 'POST'
@@ -214,6 +215,40 @@ export function describeRequestBody(body) {
 
 /** Item types that answer with a tool call. */
 const TOOL_CALL_TYPES = new Set(['function_call', 'custom_tool_call'])
+
+/** Largest refusal body read when classifying a retry; error payloads are small. */
+const RETRY_PEEK_CHARS = 8192
+
+/** Base of the retry backoff, in milliseconds: 300ms before attempt 1, 600ms before 2, ... */
+const RETRY_DELAY_MS = 300
+
+/** Read a copy of a refusal body, bounded; an unreadable body simply matches nothing. */
+async function peekBody(response) {
+  try {
+    const text = await response.clone().text()
+    return text.length > RETRY_PEEK_CHARS ? text.slice(0, RETRY_PEEK_CHARS) : text
+  } catch {
+    return ''
+  }
+}
+
+/** The first enabled rule that claims this refusal, or undefined. */
+function matchRetryRule(rules, context) {
+  for (const id of rules) {
+    const rule = retryById(id)
+    try {
+      if (rule !== undefined && rule.matches(context) === true) return rule
+    } catch {
+      // A broken rule must not stop the request it was inspecting.
+    }
+  }
+  return undefined
+}
+
+/** Wait before the next attempt. */
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 /** A copy of one Headers-ish value with `content-length` dropped. */
 function withoutContentLength(headers) {
@@ -434,6 +469,9 @@ async function resolveCall(input, init) {
 /**
  * Replace `globalThis.fetch` with the intercepting wrapper.
  *
+ * A refusal that an enabled retry rule claims is re-sent with the SAME bytes, up to
+ * the configured number of attempts — a model-call retry, so no tool runs twice.
+ *
  * @param options - `{ resolveSettings, stash, log?, fixes?, onRejection? }` for
  *   {@link createWriter}. `onRejection` is called once per refused request with the
  *   facts needed to diagnose it, including the exact body that was sent.
@@ -445,6 +483,10 @@ export function installFetchInterceptor(options) {
   const writer = createWriter(options)
   const log = typeof options.log === 'function' ? options.log : () => {}
   const onRejection = typeof options.onRejection === 'function' ? options.onRejection : undefined
+  /** Base backoff; a test sets 0 so the retry path costs no wall-clock time. */
+  const retryDelayMs = Number.isFinite(options.retryDelayMs) ? options.retryDelayMs : RETRY_DELAY_MS
+  /** The live settings the retry loop reads on every refusal. */
+  const resolveSettings = typeof options.resolveSettings === 'function' ? options.resolveSettings : () => undefined
 
   const wrapped = async function fetch(input, init) {
     let resolved
@@ -465,20 +507,49 @@ export function installFetchInterceptor(options) {
       }
     }
 
-    let response
-    if (rewritten === undefined) {
-      response = await original.call(this, input, init)
-    } else if (resolved.source === 'init') {
-      response = await original.call(this, resolved.url, {
-        ...init,
-        headers: withoutContentLength(init.headers),
-        body: rewritten.body,
-      })
-    } else {
-      response = await original.call(this, new Request(input, {
+    /*
+     * A retry re-sends the same bytes, so the call has to be reconstructible: a
+     * string body always is, and a Request whose body was read through a clone is
+     * rebuilt from that text. Anything else is sent once and left alone.
+     */
+    const rebuildable = resolved.source === 'init' || typeof resolved.bodyText === 'string'
+    const send = () => {
+      const body = rewritten === undefined
+        ? (resolved.source === 'init' ? undefined : resolved.bodyText)
+        : rewritten.body
+      if (resolved.source === 'init') {
+        return original.call(this, resolved.url, body === undefined
+          ? init
+          : { ...init, headers: withoutContentLength(init.headers), body })
+      }
+      return original.call(this, new Request(input, {
+        ...(body === undefined ? {} : { body }),
         headers: withoutContentLength(input.headers),
-        body: rewritten.body,
       }))
+    }
+
+    let response = await send()
+    let attempt = 0
+    while (typeof response?.status === 'number' && response.status >= 400) {
+      const settings = resolveSettings()
+      const rules = settings?.retries
+      const allowed = Number.isInteger(settings?.retryAttempts) ? settings.retryAttempts : 0
+      if (!(rules instanceof Set) || rules.size === 0 || attempt >= allowed || !rebuildable) break
+      const rule = matchRetryRule(rules, {
+        status: response.status,
+        url: resolved.url,
+        bodyText: await peekBody(response),
+      })
+      if (rule === undefined) break
+      attempt += 1
+      log('retrying ' + resolved.url + ' (attempt ' + String(attempt) + '/' + String(allowed) + ') after ' + rule.id)
+      try {
+        await response.body?.cancel()
+      } catch {
+        // The discarded attempt has no consumer of its own.
+      }
+      await delay(retryDelayMs * attempt + Math.floor(Math.random() * retryDelayMs * 0.66))
+      response = await send()
     }
 
     try {

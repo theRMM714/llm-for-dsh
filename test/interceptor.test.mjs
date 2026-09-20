@@ -14,8 +14,24 @@ import { createStash } from '../src/stash.js'
 const RESPONSES = 'https://relay.example/v1/responses'
 
 /** Settings resolve once, as the Host half does per request. */
-function settingsOf(enabled, hosts = []) {
-  return { enabled: new Set(enabled), hosts, diagnostics: false }
+function settingsOf(enabled, hosts = [], extra = {}) {
+  return { enabled: new Set(enabled), hosts, diagnostics: false, retries: new Set(), retryAttempts: 0, ...extra }
+}
+
+/** The refusal the relay returns for a thinking-mode request that lost its reasoning. */
+const REFUSAL = JSON.stringify({
+  error: { message: 'The `reasoning_text` in the thinking mode must be passed back to the API.', type: 'invalid_request_error' },
+})
+
+/** A downstream stub that answers with the given responses, repeating the last one. */
+function stubFetch(answers) {
+  const calls = []
+  const stub = async (url, init) => {
+    calls.push({ url, body: typeof init?.body === 'string' ? init.body : undefined })
+    const answer = answers[Math.min(calls.length - 1, answers.length - 1)]
+    return new Response(answer.body, { status: answer.status, headers: { 'content-type': 'application/json' } })
+  }
+  return { stub, calls }
 }
 
 /** A writer over the shipped catalog, plus the stash it consults. */
@@ -267,6 +283,82 @@ test('a refused request reports its status and the exact body that was sent', as
   const rewritten = JSON.parse(rejections[0].requestBody)
   assert.deepEqual(rewritten.input.map((item) => item.type), ['reasoning', 'function_call'])
   assert.ok(lines.some((line) => /resp 400/.test(line)), 'the outcome is logged: ' + lines.join(' | '))
+})
+
+test('an enabled retry rule re-sends the same bytes and returns the second answer', async () => {
+  const realFetch = globalThis.fetch
+  const { stub, calls } = stubFetch([{ status: 400, body: REFUSAL }, { status: 200, body: '{"ok":true}' }])
+  globalThis.fetch = stub
+  const dispose = installFetchInterceptor({
+    resolveSettings: () => settingsOf([], [], { retries: new Set(['reasoning-text-not-passed-back']), retryAttempts: 2 }),
+    stash: createStash(),
+    log: () => {},
+    retryDelayMs: 0,
+  })
+  try {
+    const response = await globalThis.fetch(RESPONSES, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(bodyFor('call_1')),
+    })
+    assert.equal(response.status, 200)
+  } finally {
+    dispose()
+    globalThis.fetch = realFetch
+  }
+  assert.equal(calls.length, 2)
+  // The retry is the SAME request, not a rebuilt one.
+  assert.equal(calls[0].body, calls[1].body)
+})
+
+test('a retry only happens for an enabled rule, a matching refusal, and a spare attempt', async () => {
+  const cases = [
+    { label: 'rule disabled', settings: settingsOf([], [], { retryAttempts: 2 }), expected: 1 },
+    { label: 'attempts exhausted', settings: settingsOf([], [], { retries: new Set(['reasoning-text-not-passed-back']), retryAttempts: 0 }), expected: 1 },
+    { label: 'two attempts granted', settings: settingsOf([], [], { retries: new Set(['reasoning-text-not-passed-back']), retryAttempts: 2 }), expected: 3 },
+  ]
+  for (const scenario of cases) {
+    const realFetch = globalThis.fetch
+    const { stub, calls } = stubFetch([{ status: 400, body: REFUSAL }])
+    globalThis.fetch = stub
+    const dispose = installFetchInterceptor({ resolveSettings: () => scenario.settings, stash: createStash(), log: () => {}, retryDelayMs: 0 })
+    try {
+      const response = await globalThis.fetch(RESPONSES, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(bodyFor('call_1')),
+      })
+      assert.equal(response.status, 400, scenario.label)
+    } finally {
+      dispose()
+      globalThis.fetch = realFetch
+    }
+    assert.equal(calls.length, scenario.expected, scenario.label)
+  }
+})
+
+test('an unrelated 400 is never retried', async () => {
+  const realFetch = globalThis.fetch
+  const { stub, calls } = stubFetch([{ status: 400, body: '{"error":{"message":"Invalid token"}}' }])
+  globalThis.fetch = stub
+  const dispose = installFetchInterceptor({
+    resolveSettings: () => settingsOf([], [], { retries: new Set(['reasoning-text-not-passed-back']), retryAttempts: 2 }),
+    stash: createStash(),
+    log: () => {},
+    retryDelayMs: 0,
+  })
+  try {
+    const response = await globalThis.fetch(RESPONSES, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(bodyFor('call_1')),
+    })
+    assert.equal(response.status, 400)
+  } finally {
+    dispose()
+    globalThis.fetch = realFetch
+  }
+  assert.equal(calls.length, 1)
 })
 
 test('the shipped catalog keeps the fix off by default', () => {

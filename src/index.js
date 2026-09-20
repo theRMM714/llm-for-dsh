@@ -20,6 +20,8 @@
  */
 import z from '@deepseek-ai/schemastery'
 import { DEFAULT_ENABLED, fixById } from './fixes/index.js'
+import { DEFAULT_RETRY_ATTEMPTS, MAX_RETRY_ATTEMPTS } from './limits.js'
+import { DEFAULT_RETRY_RULES, retryById } from './retries/index.js'
 import { installFetchInterceptor, normalizeHosts } from './interceptor.js'
 import { createDiagnosticLog, defaultLogPath } from './log.js'
 import { LOG_ROUTE } from './routes.js'
@@ -69,6 +71,10 @@ export const Config = z.object({
   singleReasoningSlot: z.boolean().default(false).description('思考项只写一个文本槽。'),
   /** 某轮完全没有思考可回传时，补一个文本为单个空格的占位项。 */
   placeholderReasoning: z.boolean().default(false).description('没有思考可回传时补一个占位项。'),
+  /** 命中这些重试规则时，把同一个请求原样再发一次。 */
+  retries: z.array(z.string()).default([...DEFAULT_RETRY_RULES]).description('启用的重试规则 id。'),
+  /** 每个请求最多重试次数。 */
+  retryAttempts: z.number().default(DEFAULT_RETRY_ATTEMPTS).description('每个请求最多重试次数。'),
 })
 
 /**
@@ -95,6 +101,16 @@ export function normalizeSettings(value) {
     recentTurns: Number.isInteger(input.recentTurns) && input.recentTurns > 0 ? input.recentTurns : 0,
     singleReasoningSlot: input.singleReasoningSlot === true,
     placeholderReasoning: input.placeholderReasoning === true,
+    retries: new Set(
+      (Array.isArray(input.retries) ? input.retries : DEFAULT_RETRY_RULES).filter(
+        (id) => typeof id === 'string' && retryById(id) !== undefined,
+      ),
+    ),
+    retryAttempts: (() => {
+      const chosen = Number.isInteger(input.retryAttempts) ? input.retryAttempts : DEFAULT_RETRY_ATTEMPTS
+      if (chosen <= 0) return 0
+      return Math.min(chosen, MAX_RETRY_ATTEMPTS)
+    })(),
   }
 }
 

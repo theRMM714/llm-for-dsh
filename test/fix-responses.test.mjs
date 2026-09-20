@@ -204,6 +204,47 @@ test('recentTurns bounds the work to the newest turns', () => {
   assert.equal(rewrite(zero, { stash, recentTurns: 0 }), 3)
 })
 
+test('every gap is covered; only the newest N turns carry recovered text', () => {
+  const stash = createStash()
+  stash.record(['call_1'], { text: 'first' })
+  stash.record(['call_2'], { text: 'second' })
+  stash.record(['call_3'], { text: 'third' })
+  const build = () => ({ input: [...turn('call_1'), ...turn('call_2'), ...turn('call_3')] })
+
+  // With no placeholder allowed, nothing older than the window can be filled.
+  const off = build()
+  assert.equal(rewrite(off, { stash, recentTurns: 1 }), 1)
+
+  // With it on, the two older gaps still get an item — a single-space placeholder —
+  // so coverage does not depend on how long the session has grown.
+  const on = build()
+  assert.equal(rewrite(on, { stash, recentTurns: 1, placeholderReasoning: true }), 3)
+  const texts = on.input.filter((item) => item.type === 'reasoning').map((item) => item.content[0].text)
+  assert.deepEqual(texts, [' ', ' ', 'third'])
+
+  // N = 0 keeps the original meaning: every turn uses its recovered text.
+  const all = build()
+  assert.equal(rewrite(all, { stash, placeholderReasoning: true }), 3)
+  assert.deepEqual(all.input.filter((item) => item.type === 'reasoning').map((item) => item.content[0].text), [
+    'first',
+    'second',
+    'third',
+  ])
+})
+
+test('a turn outside the window never replays a captured item either', () => {
+  const item = { type: 'reasoning', id: 'rs_9', summary: [{ type: 'summary_text', text: 'original' }] }
+  const stash = createStash()
+  stash.record(['call_1'], { items: [item], text: 'recovered' })
+  stash.record(['call_2'], { text: 'newest' })
+  const body = { input: [...turn('call_1'), ...turn('call_2')] }
+  assert.equal(rewrite(body, { stash, recentTurns: 1, placeholderReasoning: true }), 2)
+  const items = body.input.filter((entry) => entry.type === 'reasoning')
+  assert.equal(items[0].content[0].text, ' ')
+  assert.equal('id' in items[0], false)
+  assert.equal(items[1].content[0].text, 'newest')
+})
+
 test('singleReasoningSlot halves the synthesized text and replays captured items as sent', () => {
   const stash = createStash()
   stash.record(['call_1'], { text: 'thought' })

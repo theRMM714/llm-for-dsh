@@ -242,6 +242,7 @@ export function createWriter(options) {
             stash,
             recentTurns: settings.recentTurns,
             singleReasoningSlot: settings.singleReasoningSlot,
+            placeholderReasoning: settings.placeholderReasoning,
           })
           if (count > 0) changed.push(id + '(' + String(count) + ')')
         } catch (error) {

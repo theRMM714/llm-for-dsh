@@ -20,6 +20,7 @@ test('an empty document resolves through the schema defaults', () => {
   assert.equal(resolved.diagnostics, false)
   assert.equal(resolved.recentTurns, 0)
   assert.equal(resolved.singleReasoningSlot, false)
+  assert.equal(resolved.placeholderReasoning, false)
 })
 
 test('the two token-saving options fold to safe values', () => {
@@ -30,6 +31,9 @@ test('the two token-saving options fold to safe values', () => {
   assert.equal(normalizeSettings({ recentTurns: '3' }).recentTurns, 0)
   assert.equal(normalizeSettings({ singleReasoningSlot: true }).singleReasoningSlot, true)
   assert.equal(normalizeSettings({ singleReasoningSlot: 'yes' }).singleReasoningSlot, false)
+  assert.equal(normalizeSettings({ placeholderReasoning: true }).placeholderReasoning, true)
+  assert.equal(normalizeSettings({ placeholderReasoning: 'yes' }).placeholderReasoning, false)
+  assert.equal(normalizeSettings({}).placeholderReasoning, false)
   // Both are independent, so both may be on at once.
   const both = normalizeSettings({ recentTurns: 1, singleReasoningSlot: true })
   assert.equal(both.recentTurns, 1)

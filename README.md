@@ -26,7 +26,7 @@ dsh plugin --profile <profile> add github:theRMM714/llm-for-dsh
 
 > 从 GitHub 安装/更新时 shell 里要能访问 github.com；若网络需要代理，先 `export HTTPS_PROXY=http://127.0.0.1:<端口>`。
 
-重启 Profile 后，设置面板出现「LLM 兼容性修复」页。
+重启 Profile 后，设置面板出现「LLM 工具」页（页内标题为「LLM 兼容性修复」）。
 
 ## 使用
 
@@ -40,6 +40,7 @@ dsh plugin --profile <profile> add github:theRMM714/llm-for-dsh
 | 最近 N 轮写真实思考文本 | `responses-reasoning-echo` 的选项。缺项轮**总会**被补上；这个值只决定哪几轮用真实文本。`0`（默认）＝每一轮都用真实文本；填 `1` 则只有最新一轮用真实文本，更早的缺项轮改用单空格占位项——覆盖面不变，注入量从约 1 MB 降到几 KB。需要同时开启「没有思考时补一个占位项」 |
 | 思考项只写一个文本槽 | 同一修复项的选项。默认同时写 `summary` 与 `reasoning_text` 两个槽（保险，但文本翻倍）；开启后合成项只写 `reasoning_text`、捕获到的原始项原样回放，注入文本约减半 |
 | 没有思考时补一个占位项 | 同一修复项的选项。某一轮**既没有可回放的捕获项、也没有历史思考文本**时（提供方只回传了裸工具调用），补一个文本为单个空格的思考项，只为满足「必须回传」的存在性检查；它同时是「最近 N 轮」之外那些轮次的补齐手段。默认关闭 |
+| 清理日志 | 一个按钮：清空 `llm-compat.log` 与 `llm-compat-rejected.jsonl`，就地开始新的观察。页面通过同源路由 `/llm-compat/log` 完成，Host 未提供 webserver 服务时该卡片只显示提示 |
 
 三个选项互相独立、**可以同时开启**：一个决定哪几轮写真实文本、一个决定每个注入项写几个槽、一个决定没有文本可回放时是否补占位项。
 
@@ -88,7 +89,8 @@ src/fixes/index.js      修复目录（唯一事实来源）
 src/fixes/*.js          各修复项
 src/interceptor.js      fetch 包装：形状识别、改写、安全透传
 src/stash.js            call_id → 思考内容的旁路索引
-src/log.js              诊断日志
+src/log.js              诊断日志（读取路径、被拒报文落盘、清空）
+src/routes.js           Host 与客户端共用的路由常量
 src/client.js           浏览器半：设置页
 scripts/build.mjs       src/ → lib/ 的构建（含目录嵌入）
 scripts/link-dev-deps.mjs  仅供测试：把 harness 包链接进本仓

@@ -163,6 +163,21 @@ test('each declared fix option renders one control', () => {
   walk(rendered)
   assert.equal(classes.filter((name) => name.includes('llm-compat-subrow')).length, 3)
   assert.equal(classes.filter((name) => name.includes('llm-compat-number')).length, 1)
+  // The log card carries the clear button.
+  assert.equal(classes.filter((name) => name.includes('llm-compat-button')).length, 1)
+  const button = []
+  const collect = (node) => {
+    if (node === null || typeof node !== 'object') return
+    if (Array.isArray(node)) {
+      for (const child of node) collect(child)
+      return
+    }
+    if (node.type === 'button') button.push(node)
+    collect(node.children)
+  }
+  collect(rendered)
+  assert.equal(button.length, 1)
+  assert.deepEqual(button[0].children, ['清理日志'])
 })
 
 test('activation binds the shared namespace and registers the settings page', () => {
@@ -173,6 +188,8 @@ test('activation binds the shared namespace and registers the settings page', ()
   assert.deepEqual(calls.slots, ['settings.section'])
   assert.equal(calls.registered.spec.id, 'llm-compat')
   assert.equal(calls.registered.spec.name, 'settings.section')
+  // The settings entry names the TOOL; the page title stays the fix list.
+  assert.equal(calls.registered.spec.label(), 'LLM 工具')
   assert.equal(calls.effects, 1)
 })
 

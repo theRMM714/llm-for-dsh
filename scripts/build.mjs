@@ -27,6 +27,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { DEFAULT_ENABLED, describeFixes } from '../src/fixes/index.js'
+import { LOG_ROUTE } from '../src/routes.js'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 
@@ -34,6 +35,7 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 const TOKEN_PACKAGE = '__LLM_COMPAT_PACKAGE__'
 const TOKEN_CATALOG = '__LLM_COMPAT_CATALOG__'
 const TOKEN_BUILD = '__LLM_COMPAT_BUILD__'
+const TOKEN_LOG_ROUTE = '__LLM_COMPAT_LOG_ROUTE__'
 
 /** The manifest, read rather than restated: the bundle's module id must be the package name. */
 export const PACKAGE_NAME = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).name
@@ -105,11 +107,11 @@ export function buildInto(outDir) {
   const modules = hostModules()
   const sources = modules.map((file) => [file, readFileSync(join(root, 'src', file), 'utf8')])
   const clientSource = readFileSync(join(root, 'src', CLIENT_SOURCE), 'utf8')
-  for (const token of [TOKEN_PACKAGE, TOKEN_CATALOG, TOKEN_BUILD]) {
+  for (const token of [TOKEN_PACKAGE, TOKEN_CATALOG, TOKEN_BUILD, TOKEN_LOG_ROUTE]) {
     if (!clientSource.includes(token)) throw new Error('src/client.js does not carry the ' + token + ' token')
   }
   const catalog = serializeCatalog()
-  const stamp = buildStamp([...sources.map(([, text]) => text), clientSource, catalog])
+  const stamp = buildStamp([...sources.map(([, text]) => text), clientSource, catalog, LOG_ROUTE])
 
   const written = []
   for (const [file, text] of sources) {
@@ -120,6 +122,7 @@ export function buildInto(outDir) {
   }
   const client = clientSource
     .replaceAll(TOKEN_CATALOG, catalog)
+    .replaceAll(TOKEN_LOG_ROUTE, JSON.stringify(LOG_ROUTE))
     .replaceAll(TOKEN_BUILD, JSON.stringify(stamp))
     .replaceAll(TOKEN_PACKAGE, JSON.stringify(PACKAGE_NAME))
   writeFileSync(join(outDir, CLIENT_SOURCE), client)

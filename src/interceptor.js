@@ -211,6 +211,16 @@ export function createWriter(options) {
   const log = typeof options.log === 'function' ? options.log : () => {}
   const fixes = Array.isArray(options.fixes) ? options.fixes : FIXES
   const byId = new Map(fixes.map((fix) => [fix.id, fix]))
+  /**
+   * The last inspected body per URL.
+   *
+   * A request that needs NO change is still the request a gateway may refuse —
+   * and the rejection record then has nothing to explain it. Keeping the digest
+   * of the inspected body closes that blind spot: the refusal carries the same
+   * turn-by-turn picture a rewritten one would.
+   */
+  const digests = new Map()
+  const REMEMBERED_URLS = 8
 
   return {
     /**
@@ -233,11 +243,13 @@ export function createWriter(options) {
         return undefined
       }
       const changed = []
+      let inspected = false
       for (const id of settings.enabled) {
         const fix = byId.get(id)
         if (fix === undefined) continue
         try {
           if (fix.requestMatcher(url, body) !== true) continue
+          inspected = true
           const count = fix.rewrite(body, {
             stash,
             recentTurns: settings.recentTurns,
@@ -249,10 +261,23 @@ export function createWriter(options) {
           log('fix ' + id + ' threw for ' + url + ': ' + describe(error))
         }
       }
+      if (!inspected) return undefined
+      // Remember the shape even when nothing was rewritten.
+      digests.set(url, describeRequestBody(body))
+      while (digests.size > REMEMBERED_URLS) digests.delete(digests.keys().next().value)
       if (changed.length === 0) return undefined
       const serialized = JSON.stringify(body)
       log('rewrote ' + url + ' via ' + changed.join(', ') + ' (' + String(serialized.length) + ' bytes)')
-      return { body: serialized, changed, digest: describeRequestBody(body) }
+      return { body: serialized, changed, digest: digests.get(url) }
+    },
+
+    /**
+     * The digest of the last body inspected for one URL, rewritten or not.
+     * @param url - the absolute request URL.
+     * @returns the digest, or undefined when this URL was never inspected.
+     */
+    digestFor(url) {
+      return digests.get(url)
     },
 
     /**
@@ -458,7 +483,7 @@ export function installFetchInterceptor(options) {
               changed,
               requestBody: sentBody,
               responseBody,
-              digest: rewritten?.digest,
+              digest: rewritten?.digest ?? writer.digestFor(resolved.url),
             })
           } catch (error) {
             log('rejection dump failed: ' + describe(error))

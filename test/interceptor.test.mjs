@@ -124,10 +124,51 @@ test('an inspected request keeps its digest even when nothing was rewritten', as
 test('the digest describes a chat-completions body too', () => {
   assert.deepEqual(describeRequestBody({ messages: [{ role: 'user' }] }), {
     items: 1,
+    toolTurns: 0,
+    gaps: 0,
     tail: [{ t: 'user' }],
   })
   assert.equal(describeRequestBody({ nothing: true }), undefined)
   assert.equal(describeRequestBody(null), undefined)
+})
+
+test('the digest counts tool turns and the gaps left AFTER the rewrite', () => {
+  const covered = {
+    input: [
+      { type: 'reasoning', content: [{ type: 'reasoning_text', text: 'x' }] },
+      { type: 'function_call', call_id: 'a' },
+      { type: 'function_call_output', call_id: 'a' },
+      { type: 'reasoning', content: [{ type: 'reasoning_text', text: 'y' }] },
+      { type: 'function_call', call_id: 'b' },
+      { type: 'function_call_output', call_id: 'b' },
+    ],
+  }
+  assert.deepEqual(
+    { toolTurns: describeRequestBody(covered).toolTurns, gaps: describeRequestBody(covered).gaps },
+    { toolTurns: 2, gaps: 0 },
+  )
+  const hole = {
+    input: [
+      { type: 'reasoning', content: [{ type: 'reasoning_text', text: 'x' }] },
+      { type: 'function_call', call_id: 'a' },
+      { type: 'function_call_output', call_id: 'a' },
+      { type: 'function_call', call_id: 'b' },
+      { type: 'function_call_output', call_id: 'b' },
+    ],
+  }
+  assert.deepEqual(
+    { toolTurns: describeRequestBody(hole).toolTurns, gaps: describeRequestBody(hole).gaps },
+    { toolTurns: 2, gaps: 1 },
+  )
+  // An assistant message keeps its turn's reasoning in scope, so it is not a gap.
+  const withText = {
+    input: [
+      { type: 'reasoning', content: [] },
+      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'hi' }] },
+      { type: 'function_call', call_id: 'a' },
+    ],
+  }
+  assert.equal(describeRequestBody(withText).gaps, 0)
 })
 
 test('an unknown enabled id is ignored rather than fatal', () => {

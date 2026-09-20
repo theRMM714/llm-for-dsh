@@ -209,6 +209,37 @@ export function withReasoningText(item, text) {
   return { ...item, content: [{ type: REASONING_TEXT_PART, text }] }
 }
 
+/** The thinking text an item carries in its summary parts, in order. */
+function summaryTextOf(item) {
+  if (!Array.isArray(item.summary)) return ''
+  return item.summary
+    .map((part) => (part !== null && typeof part === 'object' && typeof part.text === 'string' ? part.text : ''))
+    .filter((text) => text.length > 0)
+    .join('\n\n')
+}
+
+/**
+ * Reshape one reasoning item into the canonical content-only form.
+ *
+ * WHY: a gateway forwards the same conversation to different upstreams, and they
+ * disagree about the shape. One demands the plain `reasoning_text`, the other
+ * answers `json: unknown field "summary"` for the summary slot the gateway itself
+ * produced. Both were observed on the same route — and an item carrying only
+ * `content: [{ type: "reasoning_text" }]` has been accepted by both, so the
+ * summary text is MOVED rather than dropped, and the provider-minted `id` stays.
+ *
+ * @param item - one parsed reasoning item; mutated in place.
+ * @returns true when the item was reshaped.
+ */
+export function normalizeReasoningItem(item) {
+  if (item === null || typeof item !== 'object' || item.type !== 'reasoning') return false
+  if (!Array.isArray(item.summary)) return false
+  const text = summaryTextOf(item)
+  delete item.summary
+  if (!hasReasoningTextPart(item)) item.content = [{ type: REASONING_TEXT_PART, text }]
+  return true
+}
+
 /** A cloned reasoning item, or undefined when a stored item is not one. */
 function cloneItem(item) {
   if (item === null || typeof item !== 'object' || item.type !== 'reasoning') return undefined
@@ -232,21 +263,24 @@ function cloneItem(item) {
  * order, and the very thing a gateway validates when it complains that the
  * thinking was not passed back.
  *
- * @param context - `{ stash, recentTurns?, singleReasoningSlot? }`. `recentTurns`
+ * @param context - `{ stash, recentTurns?, singleReasoningSlot?, placeholderReasoning?, reasoningTextOnly? }`. `recentTurns`
  *   bounds the work to the newest N assistant turns (0 or absent means every turn),
  *   which is what keeps a long session from re-sending megabytes of old thinking.
- * @returns how many reasoning items were inserted.
+ * @returns how many reasoning items were inserted or reshaped.
  */
 export function rewrite(body, context) {
   if (body === null || typeof body !== 'object' || !Array.isArray(body.input)) return 0
   const stash = context?.stash
   if (stash === undefined) return 0
+  const normalizeShape = context?.reasoningTextOnly === true
 
   const output = []
   /** One entry per assistant turn, in wire order; `start` indexes into `output`. */
   const turns = []
   let current = null
   let inserted = 0
+  /** Items already present that were reshaped instead of added. */
+  let reshaped = 0
 
   for (const item of body.input) {
     const type = item !== null && typeof item === 'object' ? item.type : undefined
@@ -254,6 +288,7 @@ export function rewrite(body, context) {
     if (type === 'reasoning') {
       if (current === null) current = openTurn(output, turns)
       current.hasReasoning = true
+      if (normalizeShape && normalizeReasoningItem(item)) reshaped += 1
       output.push(item)
       continue
     }
@@ -299,7 +334,8 @@ export function rewrite(body, context) {
   }
 
   if (inserted > 0) body.input = output
-  return inserted
+  // The caller's count is "how much this request changed", so a reshape counts too.
+  return inserted + reshaped
 }
 
 /** Record a turn whose items start at the current end of the output. */
@@ -397,6 +433,12 @@ export const metadata = {
       kind: 'boolean',
       title: '没有思考时补一个占位项',
       hint: '提供方某一轮可能完全不回传思考（模型只吐工具调用）。开启后，这类轮次会补一个文本为单个空格的思考项，只为满足「必须回传」的存在性检查；关闭则不改写（默认）。',
+    },
+    {
+      id: 'reasoningTextOnly',
+      kind: 'boolean',
+      title: '思考项统一成 reasoning_text 形状',
+      hint: '把请求里所有思考项都改成只带 reasoning_text 内容槽：去掉 summary（文本搬进 content，id 保留）。实测同一中继的两个上游一个要求回传 reasoning_text、另一个报 unknown field "summary"；content-only 的形状两边都接受。默认关闭。',
     },
     {
       id: 'singleReasoningSlot',

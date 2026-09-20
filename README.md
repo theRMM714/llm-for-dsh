@@ -41,6 +41,7 @@ dsh plugin --profile <profile> add github:theRMM714/llm-for-dsh
 | 思考项只写一个文本槽 | 同一修复项的选项。默认同时写 `summary` 与 `reasoning_text` 两个槽（保险，但文本翻倍）；开启后合成项只写 `reasoning_text`、捕获到的原始项原样回放，注入文本约减半 |
 | 没有思考时补一个占位项 | 同一修复项的选项。某一轮**既没有可回放的捕获项、也没有历史思考文本**时（提供方只回传了裸工具调用），补一个文本为单个空格的思考项，只为满足「必须回传」的存在性检查；它同时是「最近 N 轮」之外那些轮次的补齐手段。默认关闭 |
 | 重试 | 一张卡片：**错误类型复选框列表** + 「最多重试次数」。命中规则时把**同一个请求原样再发一次**（模型调用层的重试，不会重跑工具）。规则默认关闭，次数默认 2、上限 5 |
+| 思考项统一成 reasoning_text 形状 | `responses-reasoning-echo` 的选项。把请求里**所有**思考项改成只带 `reasoning_text` 内容槽：去掉 `summary`（文本搬进 `content`，`id` 保留）。实测同一中继的两个上游对形状要求相反——一个要求回传 `reasoning_text`，另一个对 `summary` 报 `unknown field`——而 content-only 两边都接受。默认关闭 |
 | 清理日志 | 一个按钮：清空 `llm-compat.log` 与 `llm-compat-rejected.jsonl`，就地开始新的观察。页面通过同源路由 `/llm-compat/log` 完成，Host 未提供 webserver 服务时该卡片只显示提示 |
 
 三个选项互相独立、**可以同时开启**：一个决定哪几轮写真实文本、一个决定每个注入项写几个槽、一个决定没有文本可回放时是否补占位项。

@@ -120,9 +120,12 @@ window.__ModuleLoader__.load({
           recentTurns: 0,
           singleReasoningSlot: false,
           placeholderReasoning: false,
+          retries: [...CATALOG.defaults.retries],
+          retryAttempts: CATALOG.defaults.retryAttempts,
         }
         if (section === null || typeof section !== 'object' || Array.isArray(section)) return fallback
         const known = new Set(CATALOG.fixes.map((fix) => fix.id))
+        const knownRetries = new Set(CATALOG.retries.map((rule) => rule.id))
         return {
           enabled: Array.isArray(section.enabled)
             ? section.enabled.filter((id) => typeof id === 'string' && known.has(id))
@@ -134,6 +137,12 @@ window.__ModuleLoader__.load({
           recentTurns: Number.isInteger(section.recentTurns) && section.recentTurns > 0 ? section.recentTurns : 0,
           singleReasoningSlot: section.singleReasoningSlot === true,
           placeholderReasoning: section.placeholderReasoning === true,
+          retries: Array.isArray(section.retries)
+            ? section.retries.filter((id) => typeof id === 'string' && knownRetries.has(id))
+            : [...CATALOG.defaults.retries],
+          retryAttempts: Number.isInteger(section.retryAttempts) && section.retryAttempts >= 0
+            ? section.retryAttempts
+            : CATALOG.defaults.retryAttempts,
         }
       }
 
@@ -268,6 +277,15 @@ window.__ModuleLoader__.load({
           commit('enabled', list)
         }
 
+        const toggleRetry = (id) => {
+          const next = new Set(value.retries)
+          if (next.has(id)) next.delete(id)
+          else next.add(id)
+          const list = CATALOG.retries.map((rule) => rule.id).filter((candidate) => next.has(candidate))
+          setDraft({ ...value, retries: list })
+          commit('retries', list)
+        }
+
         const toggleDiagnostics = () => {
           const next = value.diagnostics !== true
           setDraft({ ...value, diagnostics: next })
@@ -384,6 +402,42 @@ window.__ModuleLoader__.load({
               ),
               (fix.options ?? []).map(optionRow),
             ),
+          ),
+          React.createElement(
+            'section',
+            { className: 'llm-compat-card' },
+            React.createElement('span', { className: 'llm-compat-name' }, '重试'),
+            React.createElement(
+              'span',
+              { className: 'llm-compat-hint' },
+              '命中下列任一错误时，把同一个请求原样再发一次；这是模型调用层的重试，不会重跑工具。规则默认关闭。',
+            ),
+            CATALOG.retries.map((rule) =>
+              React.createElement(
+                'label',
+                { className: 'llm-compat-subrow', key: rule.id },
+                React.createElement('input', {
+                  type: 'checkbox',
+                  className: 'llm-compat-check',
+                  checked: value.retries.indexOf(rule.id) !== -1,
+                  disabled: !editable,
+                  onChange: () => toggleRetry(rule.id),
+                }),
+                React.createElement(
+                  'span',
+                  { className: 'llm-compat-body' },
+                  React.createElement('span', { className: 'llm-compat-name' }, rule.title),
+                  React.createElement('span', { className: 'llm-compat-hint' }, rule.hint),
+                ),
+              ),
+            ),
+            optionRow({
+              id: 'retryAttempts',
+              kind: 'number',
+              title: '最多重试次数',
+              hint: '每个请求针对上述错误最多重发几次（Host 侧上限 5）。',
+              min: 0,
+            }),
           ),
           React.createElement(
             'section',

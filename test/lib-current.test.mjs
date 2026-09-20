@@ -28,13 +28,20 @@ test('the host modules the build copies include the fix catalog', () => {
   assert.ok(modules.includes('log.js'))
   assert.ok(modules.includes('fixes/index.js'))
   assert.ok(modules.includes('fixes/responses-reasoning-echo.js'))
+  assert.ok(modules.includes('retries/index.js'))
+  assert.ok(modules.includes('retries/reasoning-text-not-passed-back.js'))
+  assert.ok(modules.includes('routes.js'))
+  assert.ok(modules.includes('limits.js'))
   assert.ok(!modules.includes('client.js'))
 })
 
 test('the embedded catalog carries the enforced fix list', () => {
   const catalog = JSON.parse(serializeCatalog())
   assert.deepEqual(catalog.fixes.map((fix) => fix.id), ['responses-reasoning-echo'])
+  assert.deepEqual(catalog.retries.map((rule) => rule.id), ['reasoning-text-not-passed-back'])
   assert.equal(catalog.defaults.diagnostics, false)
+  assert.equal(catalog.defaults.retryAttempts, 2)
+  assert.deepEqual(catalog.defaults.retries, [])
 })
 
 test('the committed lib/ matches a fresh build', () => {

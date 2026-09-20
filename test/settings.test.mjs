@@ -21,6 +21,20 @@ test('an empty document resolves through the schema defaults', () => {
   assert.equal(resolved.recentTurns, 0)
   assert.equal(resolved.singleReasoningSlot, false)
   assert.equal(resolved.placeholderReasoning, false)
+  assert.deepEqual([...resolved.retries], [])
+  assert.equal(resolved.retryAttempts, 2)
+})
+
+test('the retry options fold to safe values', () => {
+  const enabled = normalizeSettings({ retries: ['reasoning-text-not-passed-back', 'gone'] })
+  assert.deepEqual([...enabled.retries], ['reasoning-text-not-passed-back'])
+  // A rule this build does not ship is dropped, exactly like a fix id.
+  assert.equal(normalizeSettings({ retries: ['gone'] }).retries.size, 0)
+  assert.equal(normalizeSettings({}).retryAttempts, 2)
+  assert.equal(normalizeSettings({ retryAttempts: 0 }).retryAttempts, 0)
+  assert.equal(normalizeSettings({ retryAttempts: 3 }).retryAttempts, 3)
+  assert.equal(normalizeSettings({ retryAttempts: 99 }).retryAttempts, 5)
+  assert.equal(normalizeSettings({ retryAttempts: 1.5 }).retryAttempts, 2)
 })
 
 test('the two token-saving options fold to safe values', () => {

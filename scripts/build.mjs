@@ -27,6 +27,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { DEFAULT_ENABLED, describeFixes } from '../src/fixes/index.js'
+import { DEFAULT_RETRY_ATTEMPTS } from '../src/limits.js'
+import { DEFAULT_RETRY_RULES, describeRetries } from '../src/retries/index.js'
 import { LOG_ROUTE } from '../src/routes.js'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
@@ -78,7 +80,17 @@ export function hostModules(dir = join(root, 'src'), base = dir) {
 export function serializeCatalog() {
   return JSON.stringify({
     fixes: describeFixes(),
-    defaults: { enabled: [...DEFAULT_ENABLED], hosts: [], diagnostics: false },
+    retries: describeRetries(),
+    defaults: {
+      enabled: [...DEFAULT_ENABLED],
+      hosts: [],
+      diagnostics: false,
+      recentTurns: 0,
+      singleReasoningSlot: false,
+      placeholderReasoning: false,
+      retries: [...DEFAULT_RETRY_RULES],
+      retryAttempts: DEFAULT_RETRY_ATTEMPTS,
+    },
   })
     .replaceAll('<', '\\u003c')
     .replaceAll('>', '\\u003e')

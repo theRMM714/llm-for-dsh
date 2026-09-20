@@ -82,6 +82,45 @@ test('a rewrite reports a digest of the turns it sent', () => {
   assert.equal(result.digest.tail[0].text, 14)
 })
 
+test('an inspected request keeps its digest even when nothing was rewritten', async () => {
+  const stash = createStash()
+  const { writer } = writerFor(['responses-reasoning-echo'], { stash })
+  const body = {
+    model: 'm',
+    input: [
+      { type: 'message', role: 'user', content: [] },
+      { type: 'reasoning', id: 'rs_1', summary: [{ type: 'summary_text', text: 'already here' }] },
+      { type: 'function_call', call_id: 'call_x', name: 'read', arguments: '{}' },
+    ],
+  }
+  // The turn already carries an item, so the fix changes nothing...
+  assert.equal(writer.rewriteRequest(RESPONSES, 'POST', JSON.stringify(body)), undefined)
+  // ...yet the shape is remembered, which is what makes an unrewritten refusal diagnosable.
+  const digest = writer.digestFor(RESPONSES)
+  assert.equal(digest.items, 3)
+  assert.deepEqual(digest.tail.map((entry) => entry.t), ['message', 'reasoning', 'function_call'])
+
+  const rejections = []
+  const realFetch = globalThis.fetch
+  globalThis.fetch = async () => new Response('{}', { status: 400, headers: { 'content-type': 'application/json' } })
+  const dispose = installFetchInterceptor({
+    resolveSettings: () => settingsOf(['responses-reasoning-echo']),
+    stash,
+    log: () => {},
+    onRejection: (record) => rejections.push(record),
+  })
+  try {
+    await globalThis.fetch(RESPONSES, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  } finally {
+    dispose()
+    globalThis.fetch = realFetch
+  }
+  assert.equal(rejections.length, 1)
+  assert.deepEqual(rejections[0].changed, [])
+  assert.equal(rejections[0].digest.items, 3)
+})
+
 test('the digest describes a chat-completions body too', () => {
   assert.deepEqual(describeRequestBody({ messages: [{ role: 'user' }] }), {
     items: 1,

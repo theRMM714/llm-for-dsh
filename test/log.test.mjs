@@ -79,6 +79,26 @@ test('a rejection keeps the tail and the structural digest of the newest turns',
   }
 })
 
+test('the paths are exposed and both files can be emptied', () => {
+  const home = scratch()
+  try {
+    const logPath = join(home, 'llm-compat.log')
+    const log = createDiagnosticLog({ path: logPath, enabled: true })
+    log.write('one line')
+    log.dumpRejection({ url: 'u', status: 400, requestBody: '{}' })
+    assert.equal(readFileSync(logPath, 'utf8').trim().length > 0, true)
+    assert.deepEqual(log.paths(), { log: logPath, rejected: join(home, 'llm-compat-rejected.jsonl') })
+    const cleared = log.clear()
+    assert.deepEqual(cleared.sort(), [join(home, 'llm-compat-rejected.jsonl'), logPath].sort())
+    assert.equal(readFileSync(logPath, 'utf8'), '')
+    assert.equal(readFileSync(join(home, 'llm-compat-rejected.jsonl'), 'utf8'), '')
+    // Clearing a file that was never written is not a failure: it is created empty.
+    assert.equal(log.clear().length, 2)
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test('an oversized body is truncated and says so', () => {
   const home = scratch()
   try {

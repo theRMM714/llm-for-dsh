@@ -220,6 +220,35 @@ test('singleReasoningSlot halves the synthesized text and replays captured items
   assert.deepEqual(second.input[0], item)
 })
 
+test('placeholderReasoning fills a turn that produced no thinking anywhere', () => {
+  // Nothing recorded for this call id, and nothing recovered from history: the
+  // turn is exactly the one a presence check refuses.
+  const empty = createStash()
+  const untouched = { input: [...turn('call_none')] }
+  assert.equal(rewrite(untouched, { stash: empty }), 0)
+
+  const filled = { input: [...turn('call_none')] }
+  assert.equal(rewrite(filled, { stash: createStash(), placeholderReasoning: true }), 1)
+  const item = filled.input[0]
+  assert.equal(item.type, 'reasoning')
+  assert.equal(item.summary[0].text, ' ')
+  assert.equal(item.content[0].text, ' ')
+  assert.equal('id' in item, false)
+
+  // The slot option still decides how many slots the placeholder fills.
+  const single = { input: [...turn('call_none')] }
+  rewrite(single, { stash: createStash(), placeholderReasoning: true, singleReasoningSlot: true })
+  assert.deepEqual(single.input[0], { type: 'reasoning', content: [{ type: 'reasoning_text', text: ' ' }] })
+})
+
+test('placeholderReasoning never overrides recovered thinking', () => {
+  const stash = createStash()
+  stash.record(['call_1'], { text: 'real thought' })
+  const body = { input: [...turn('call_1')] }
+  rewrite(body, { stash, placeholderReasoning: true })
+  assert.equal(body.input[0].content[0].text, 'real thought')
+})
+
 test('the observer records the reasoning item and the call ids of one response', () => {
   const observer = createResponseObserver()
   observer.feed({ type: 'response.output_item.done', item: { type: 'reasoning', id: 'rs_1', summary: [{ type: 'summary_text', text: '想' }] } })

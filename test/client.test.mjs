@@ -135,9 +135,11 @@ test('the embedded catalog drives decoding, and unknown ids are dropped', () => 
   assert.equal(decoded.diagnostics, true)
   assert.equal(decoded.recentTurns, 0)
   assert.equal(decoded.singleReasoningSlot, false)
-  const options = loaded.exports.decodeSection({ recentTurns: 2, singleReasoningSlot: true })
+  assert.equal(decoded.placeholderReasoning, false)
+  const options = loaded.exports.decodeSection({ recentTurns: 2, singleReasoningSlot: true, placeholderReasoning: true })
   assert.equal(options.recentTurns, 2)
   assert.equal(options.singleReasoningSlot, true)
+  assert.equal(options.placeholderReasoning, true)
 })
 
 test('each declared fix option renders one control', () => {
@@ -159,7 +161,7 @@ test('each declared fix option renders one control', () => {
     walk(node.children)
   }
   walk(rendered)
-  assert.equal(classes.filter((name) => name.includes('llm-compat-subrow')).length, 2)
+  assert.equal(classes.filter((name) => name.includes('llm-compat-subrow')).length, 3)
   assert.equal(classes.filter((name) => name.includes('llm-compat-number')).length, 1)
 })
 

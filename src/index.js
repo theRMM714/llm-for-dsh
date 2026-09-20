@@ -56,6 +56,8 @@ export const Config = z.object({
   recentTurns: z.number().default(0).description('只回放最近 N 轮思考；0 表示不限。'),
   /** 思考项只写一个文本槽；关闭时同时写 summary 与 reasoning_text（保险但翻倍）。 */
   singleReasoningSlot: z.boolean().default(false).description('思考项只写一个文本槽。'),
+  /** 某轮完全没有思考可回传时，补一个文本为单个空格的占位项。 */
+  placeholderReasoning: z.boolean().default(false).description('没有思考可回传时补一个占位项。'),
 })
 
 /**
@@ -81,6 +83,7 @@ export function normalizeSettings(value) {
     diagnostics: input.diagnostics === true,
     recentTurns: Number.isInteger(input.recentTurns) && input.recentTurns > 0 ? input.recentTurns : 0,
     singleReasoningSlot: input.singleReasoningSlot === true,
+    placeholderReasoning: input.placeholderReasoning === true,
   }
 }
 

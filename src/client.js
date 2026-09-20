@@ -116,6 +116,7 @@ window.__ModuleLoader__.load({
           diagnostics: CATALOG.defaults.diagnostics === true,
           recentTurns: 0,
           singleReasoningSlot: false,
+          placeholderReasoning: false,
         }
         if (section === null || typeof section !== 'object' || Array.isArray(section)) return fallback
         const known = new Set(CATALOG.fixes.map((fix) => fix.id))
@@ -129,6 +130,7 @@ window.__ModuleLoader__.load({
           diagnostics: section.diagnostics === true,
           recentTurns: Number.isInteger(section.recentTurns) && section.recentTurns > 0 ? section.recentTurns : 0,
           singleReasoningSlot: section.singleReasoningSlot === true,
+          placeholderReasoning: section.placeholderReasoning === true,
         }
       }
 

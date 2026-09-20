@@ -38,6 +38,12 @@ Responses 协议里一轮的顺序是 `reasoning → message(assistant) → func
 
 改写后的日志行会带 `tool turns X, gaps Y`——`gaps` 是**改写之后**仍缺思考项的工具轮数，用与修复相同的轮次切分计算。实测出现过 `gaps 0` 的请求：同一套 15 项注入连续 4 次 200、第 5 次 400，形状完全一致。这说明该中继的这种 400 是**间歇性**的，而不是报文结构问题；此时该做的是重试（`llm-pi-ai` 每个 provider 的 `retryPolicy.retryableCodes` 默认不含 `INVALID_REQUEST`），而不是继续改注入形状。
 
+## 5.4 同一中继的不同上游对思考项形状要求相反
+
+实测同一条路由上先出现 `The reasoning_text ... must be passed back`（要求回传纯文本思考），后出现 `json: unknown field "summary"`（拒绝网关自己回传的 `summary` 槽）。前者来自要求 `reasoning_text` 的上游，后者来自另一个更严格的上游，而中继会按请求把它们路由到不同上游。
+
+两个要求并不冲突：只带 `content: [{ type: "reasoning_text" }]`、不带 `summary` 的形状对两边都成立（我们合成的项一直是这个形状，两个上游都接受过）。因此 `reasoningTextOnly` 不是「再补一个字段」，而是把整份请求规范到两边交集：文本搬家而不是丢弃，`id` 保留。
+
 ## 6. 不要凭空造 reasoning item 的 id
 
 reasoning item 的 `id` 由提供方铸造。伪造一个比留空更容易被网关拒绝，因此合成项只带 `summary` 与 `content` 文本槽，不带 `id`；能用响应捕获到的原始 item 时优先逐字节回传。

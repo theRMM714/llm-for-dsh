@@ -120,6 +120,7 @@ window.__ModuleLoader__.load({
           recentTurns: 0,
           singleReasoningSlot: false,
           placeholderReasoning: false,
+          reasoningTextOnly: false,
           retries: [...CATALOG.defaults.retries],
           retryAttempts: CATALOG.defaults.retryAttempts,
         }
@@ -137,6 +138,7 @@ window.__ModuleLoader__.load({
           recentTurns: Number.isInteger(section.recentTurns) && section.recentTurns > 0 ? section.recentTurns : 0,
           singleReasoningSlot: section.singleReasoningSlot === true,
           placeholderReasoning: section.placeholderReasoning === true,
+          reasoningTextOnly: section.reasoningTextOnly === true,
           retries: Array.isArray(section.retries)
             ? section.retries.filter((id) => typeof id === 'string' && knownRetries.has(id))
             : [...CATALOG.defaults.retries],

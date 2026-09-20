@@ -290,6 +290,44 @@ test('placeholderReasoning never overrides recovered thinking', () => {
   assert.equal(body.input[0].content[0].text, 'real thought')
 })
 
+test('reasoningTextOnly moves a summary-only item to the reasoning_text shape', () => {
+  const body = {
+    input: [
+      { type: 'reasoning', id: 'rs_1', summary: [{ type: 'summary_text', text: 'the thinking' }] },
+      { type: 'function_call', call_id: 'call_1', name: 'read', arguments: '{}' },
+    ],
+  }
+  // Off by default: the gateway's own shape is replayed untouched.
+  rewrite({ input: body.input.map((item) => ({ ...item })) }, { stash: createStash() })
+  const kept = body.input[0]
+  assert.equal('summary' in kept, true)
+
+  assert.equal(rewrite(body, { stash: createStash(), reasoningTextOnly: true }), 1)
+  const item = body.input[0]
+  assert.equal('summary' in item, false)
+  assert.equal(item.id, 'rs_1')
+  assert.deepEqual(item.content, [{ type: 'reasoning_text', text: 'the thinking' }])
+})
+
+test('a reshaped item never loses text, and an item that already has content keeps it', () => {
+  const withContent = {
+    type: 'reasoning',
+    id: 'rs_2',
+    summary: [{ type: 'summary_text', text: 'summary copy' }],
+    content: [{ type: 'reasoning_text', text: 'full thinking' }],
+  }
+  const body = { input: [withContent, { type: 'function_call', call_id: 'call_1', name: 'read', arguments: '{}' }] }
+  rewrite(body, { stash: createStash(), reasoningTextOnly: true })
+  assert.equal('summary' in body.input[0], false)
+  assert.deepEqual(body.input[0].content, [{ type: 'reasoning_text', text: 'full thinking' }])
+
+  // A summary with no text still yields a content part, so the item stays valid.
+  const empty = { type: 'reasoning', id: 'rs_3', summary: [] }
+  const second = { input: [empty, { type: 'function_call', call_id: 'call_1', name: 'read', arguments: '{}' }] }
+  rewrite(second, { stash: createStash(), reasoningTextOnly: true })
+  assert.deepEqual(second.input[0].content, [{ type: 'reasoning_text', text: '' }])
+})
+
 test('the observer records the reasoning item and the call ids of one response', () => {
   const observer = createResponseObserver()
   observer.feed({ type: 'response.output_item.done', item: { type: 'reasoning', id: 'rs_1', summary: [{ type: 'summary_text', text: '想' }] } })

@@ -140,6 +140,8 @@ test('the embedded catalog drives decoding, and unknown ids are dropped', () => 
   assert.equal(options.recentTurns, 2)
   assert.equal(options.singleReasoningSlot, true)
   assert.equal(options.placeholderReasoning, true)
+  assert.equal(decoded.reasoningTextOnly, false)
+  assert.equal(loaded.exports.decodeSection({ reasoningTextOnly: true }).reasoningTextOnly, true)
   assert.deepEqual(decoded.retries, [])
   assert.equal(decoded.retryAttempts, 2)
   const retry = loaded.exports.decodeSection({ retries: ['reasoning-text-not-passed-back', 'gone'], retryAttempts: 3 })
@@ -166,8 +168,8 @@ test('each declared fix option renders one control', () => {
     walk(node.children)
   }
   walk(rendered)
-  // Three fix options, one retry rule and the retry-attempts field.
-  assert.equal(classes.filter((name) => name.includes('llm-compat-subrow')).length, 5)
+  // Four fix options, one retry rule and the retry-attempts field.
+  assert.equal(classes.filter((name) => name.includes('llm-compat-subrow')).length, 6)
   assert.equal(classes.filter((name) => name.includes('llm-compat-number')).length, 2)
   // The log card carries the clear button.
   assert.equal(classes.filter((name) => name.includes('llm-compat-button')).length, 1)

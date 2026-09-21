@@ -78,7 +78,7 @@ harness 的请求 seam 不能被改写，但**线格式**是在适配器内部�
 | --- | --- | --- | --- |
 | `recentTurns` | 非负整数，`0` = 每一轮 | 缺项轮一律补齐（网关校验整个窗口）；这个值只决定哪几轮用**真实**思考文本。更早的缺项轮退化为占位项，因此覆盖面与成本解耦 | `0` |
 | `singleReasoningSlot` | 布尔 | 合成项只写 `content: [{ type: "reasoning_text" }]` 一个槽，省掉 summary 里的重复副本；捕获到的原始项则完全按网关发来的形状回放，不再补槽 | `false` |
-| `reasoningTextOnly` | 布尔 | 把所有思考项规范成 content-only：`summary` 的文本搬进 `content: [{ type: "reasoning_text" }]` 后删除 `summary`，提供方铸造的 `id` 保留。两个上游对形状的要求相反，content-only 是两边都接受的交集 | `false` |
+| `reasoningTextOnly` | 布尔 | 把整份请求规范到两个上游的交集：思考项一律 content-only（`summary` 文本搬进 `content: [{ type: "reasoning_text" }]` 后删除 `summary`，提供方铸造的 `id` 保留），请求参数 `reasoning` 只留 `effort`、去掉 `summary`。删参数字段会失去提供方的摘要文本，而该文本本来就被本修复重建为 `reasoning_text`，覆盖面不受影响 | `false` |
 | `placeholderReasoning` | 布尔 | 允许在没有可回放内容时补文本为单个空格的思考项。它同时是「最近 N 轮」之外那些轮次的补齐手段：缺了它，`recentTurns > 0` 就只能覆盖最新 N 轮。空格而非空串，是因为会 trim 或拒空的分支仍然接受空白 | `false` |
 
 两个默认值都保持「已验证可用」的行为：不改设置时插件的行为与调参前一致。

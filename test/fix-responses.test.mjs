@@ -328,6 +328,28 @@ test('a reshaped item never loses text, and an item that already has content kee
   assert.deepEqual(second.input[0].content, [{ type: 'reasoning_text', text: '' }])
 })
 
+test('reasoningTextOnly also drops the summary the request asks the provider for', () => {
+  // The strict upstream rejects the PARAMETER, which the item-level pass cannot reach.
+  const build = () => ({
+    model: 'm',
+    reasoning: { effort: 'high', summary: 'auto' },
+    input: [{ type: 'function_call', call_id: 'call_1', name: 'read', arguments: '{}' }],
+  })
+
+  const untouched = build()
+  assert.equal(rewrite(untouched, { stash: createStash() }), 0)
+  assert.deepEqual(untouched.reasoning, { effort: 'high', summary: 'auto' })
+
+  const stripped = build()
+  assert.equal(rewrite(stripped, { stash: createStash(), reasoningTextOnly: true }), 1)
+  assert.deepEqual(stripped.reasoning, { effort: 'high' })
+
+  // Only the reasoning parameter is touched: an unrelated summary stays.
+  const unrelated = { summary: 'keep me', reasoning: { effort: 'low' } }
+  assert.equal(rewrite(unrelated, { stash: createStash(), reasoningTextOnly: true }), 0)
+  assert.deepEqual(unrelated, { summary: 'keep me', reasoning: { effort: 'low' } })
+})
+
 test('the observer records the reasoning item and the call ids of one response', () => {
   const observer = createResponseObserver()
   observer.feed({ type: 'response.output_item.done', item: { type: 'reasoning', id: 'rs_1', summary: [{ type: 'summary_text', text: '想' }] } })

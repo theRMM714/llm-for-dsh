@@ -44,6 +44,8 @@ Responses 协议里一轮的顺序是 `reasoning → message(assistant) → func
 
 两个要求并不冲突：只带 `content: [{ type: "reasoning_text" }]`、不带 `summary` 的形状对两边都成立（我们合成的项一直是这个形状，两个上游都接受过）。因此 `reasoningTextOnly` 不是「再补一个字段」，而是把整份请求规范到两边交集：文本搬家而不是丢弃，`id` 保留。
 
+**注意 `summary` 有两处，别只清一处。** 实测在启用项级规范化之后，被拒报文里仍然出现同一个 `unknown field "summary"`：头部 256 KiB + 尾部 64 KiB 中项级 `summary` 为 0，唯一的命中是**请求参数** `"reasoning":{"effort":"high","summary":"auto"}`。也就是说上游会对两个位置分别报同一个错，只改思考项不足以消除它。
+
 ## 6. 不要凭空造 reasoning item 的 id
 
 reasoning item 的 `id` 由提供方铸造。伪造一个比留空更容易被网关拒绝，因此合成项只带 `summary` 与 `content` 文本槽，不带 `id`；能用响应捕获到的原始 item 时优先逐字节回传。

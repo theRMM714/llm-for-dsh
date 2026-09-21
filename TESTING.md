@@ -28,7 +28,7 @@ node scripts/link-dev-deps.mjs /path/to/@deepseek-ai/dsh
 
 | 文件 | 覆盖 | 类型 |
 | --- | --- | --- |
-| `test/fix-responses.test.mjs` | 端点匹配、**注入位置在轮次开头**、幂等、并行工具调用每轮只插一次、轮次边界重置、捕获项优先且为克隆、合成项形状与不伪造 id、**`recentTurns` 决定哪几轮写真实文本而缺项轮一律补齐（更早的退化为占位项，捕获项同样不例外）**、**`singleReasoningSlot` 只写一个槽且与原样回放捕获项**、**`placeholderReasoning` 对毫无思考的轮次补单空格占位项且不覆盖已恢复的文本**、**`reasoningTextOnly` 把 summary-only 项搬成 reasoning_text（文本不丢、id 保留、已有 content 的优先）**、响应观察者（逐项事件与终态回落、异常事件容忍） | 单元 |
+| `test/fix-responses.test.mjs` | 端点匹配、**注入位置在轮次开头**、幂等、并行工具调用每轮只插一次、轮次边界重置、捕获项优先且为克隆、合成项形状与不伪造 id、**`recentTurns` 决定哪几轮写真实文本而缺项轮一律补齐（更早的退化为占位项，捕获项同样不例外）**、**`singleReasoningSlot` 只写一个槽且与原样回放捕获项**、**`placeholderReasoning` 对毫无思考的轮次补单空格占位项且不覆盖已恢复的文本**、**`reasoningTextOnly` 把 summary-only 项搬成 reasoning_text（文本不丢、id 保留、已有 content 的优先）并去掉请求参数 reasoning 里的 summary（无关的顶层 summary 不动）**、响应观察者（逐项事件与终态回落、异常事件容忍） | 单元 |
 | `test/stash.test.mjs` | 复合 call id 归约、记录／查找、空载荷不入库、TTL 过期、容量淘汰、harness 提取（文本 + call id + 重放签名）、畸形输入 | 单元 |
 | `test/interceptor.test.mjs` | 关闭时不改一个字节、方法／body 形状闸门、主机闸门与域名归一化、命中改写、未知 id 忽略、修复项抛错被包含、SSE 解析（流在缺少结束空行时仍交付最后一条事件、非事件流不捕获）、目录默认关闭、**摘要统计工具轮数与改写后的缺口数（助手消息不重置本轮）**、**重试：命中时原样重发并返回第二次响应、规则关闭／次数耗尽／无关 400 时都不重发（字节完全一致由断言保证）** | 单元 |
 | `test/settings.test.mjs` | 空文档经 schema 取默认值、存储值保留、未知 id 丢弃、畸形分节回落、主机归一化、两个省流选项的折叠（非整数/负数/字符串回落到安全值，且互不影响可同时开启） | 单元 |

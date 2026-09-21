@@ -334,6 +334,19 @@ export function rewrite(body, context) {
   }
 
   if (inserted > 0) body.input = output
+
+  /*
+   * The request PARAMETER is validated by the same strict upstream, and the
+   * item-level pass above cannot reach it: `reasoning` accepts `effort` but answers
+   * `json: unknown field "summary"` for the summary request. Dropping it costs the
+   * provider's summary text, which this fix already regenerates as `reasoning_text`,
+   * so coverage is unaffected.
+   */
+  if (normalizeShape && body.reasoning !== null && typeof body.reasoning === 'object' && 'summary' in body.reasoning) {
+    delete body.reasoning.summary
+    reshaped += 1
+  }
+
   // The caller's count is "how much this request changed", so a reshape counts too.
   return inserted + reshaped
 }
@@ -437,8 +450,8 @@ export const metadata = {
     {
       id: 'reasoningTextOnly',
       kind: 'boolean',
-      title: '思考项统一成 reasoning_text 形状',
-      hint: '把请求里所有思考项都改成只带 reasoning_text 内容槽：去掉 summary（文本搬进 content，id 保留）。实测同一中继的两个上游一个要求回传 reasoning_text、另一个报 unknown field "summary"；content-only 的形状两边都接受。默认关闭。',
+      title: '思考形状统一成最保守形式',
+      hint: '两件事一起做：请求里所有思考项只保留 reasoning_text 内容槽（summary 的文本搬进 content、id 保留），并且去掉请求参数 reasoning 里的 summary（只留 effort）。实测同一中继的两个上游一个要求回传 reasoning_text、另一个对 summary 报 unknown field "summary"，这两处都要清掉。默认关闭。',
     },
     {
       id: 'singleReasoningSlot',

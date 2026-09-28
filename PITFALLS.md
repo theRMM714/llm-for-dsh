@@ -22,50 +22,50 @@ body 变长之后必须丢掉调用方可能自带的 `content-length`（否则 
 
 pi-ai 把工具调用编码成 `<call id>|<item id>`（item id 在跨模型时会被丢弃，因为在 Responses 协议里 `fc_*` 与 `rs_*` 的配对校验会拒绝它），而线格式里的 `call_id` 是竖线之前的那半。索引两侧统一归约，否则同一次调用在两侧对不上。
 
-## 5.0 思考项必须放在轮次开头，而不是工具调用之前
+## 6. 思考项必须放在轮次开头，而不是工具调用之前
 
 Responses 协议里一轮的顺序是 `reasoning → message(assistant) → function_call`，pi-ai 自己回放时就是这个顺序。只想着「补在 `function_call` 前面」会漏掉一种常见轮次：助手既说话又调用工具（`reasoning+text+tool-call`），补进去就变成 `message → reasoning → function_call`——顺序错误，而网关校验的正是这个配对。因此 `rewrite` 先按轮次切分，再插到该轮的起点。
 
-## 5.1 网关回传的思考项可能没有 `reasoning_text` 内容槽
+## 7. 网关回传的思考项可能没有 `reasoning_text` 内容槽
 
 实测某个 Responses 中继回传的思考项形如 `{ id, summary: [{ text, type: "summary_text" }], type: "reasoning" }`：有 `id` 和 `summary`，但**没有** `content` 数组，也就没有报错原文点名的 `reasoning_text`。因此原样回放捕获项并不一定满足网关的检查；修复项里的 `withReasoningText` 在保留 `id`/`summary` 的同时，把恢复到的思考文本补进 `content: [{ type: "reasoning_text" }]`，已有该槽的项不动、没有文本可补的项也不动。
 
-## 5.2 间歇性 400 必须有报文 + 尾部才能定位
+## 8. 间歇性 400 必须有报文 + 尾部才能定位
 
 同一个会话里 6 个请求成功、第 7 个被拒，只靠汇总日志无法判断差异：网关反对的是某一项的具体形状，而不是「有没有思考项」。因此拦截器在状态码 ≥ 400 时会把**当次实际发出的请求体**写入 `llm-compat-rejected.jsonl`：头部 256 KiB、尾部 64 KiB，外加末尾 24 项的逐项摘要。摘要对**没有发生改写**的请求同样保留（拦截器记住每个 URL 最近一次检查过的形状），因为「什么都没改、网关仍拒绝」恰恰是最需要逐项视图的一种失败。只存头部是不够的——要定位的是最新那一轮的形状，而它恰好在尾部。没有这份记录，任何形状层面的修改都是猜测。
 
-## 5.3 覆盖完整之后仍可能被拒：先看 gaps 再怀疑形状
+## 9. 覆盖完整之后仍可能被拒：先看 gaps 再怀疑形状
 
 改写后的日志行会带 `tool turns X, gaps Y`——`gaps` 是**改写之后**仍缺思考项的工具轮数，用与修复相同的轮次切分计算。实测出现过 `gaps 0` 的请求：同一套 15 项注入连续 4 次 200、第 5 次 400，形状完全一致。这说明该中继的这种 400 是**间歇性**的，而不是报文结构问题；此时该做的是重试（`llm-pi-ai` 每个 provider 的 `retryPolicy.retryableCodes` 默认不含 `INVALID_REQUEST`），而不是继续改注入形状。
 
-## 5.4 同一中继的不同上游对思考项形状要求相反
+## 10. 同一中继的不同上游对思考项形状要求相反
 
 实测同一条路由上先出现 `The reasoning_text ... must be passed back`（要求回传纯文本思考），后出现 `json: unknown field "summary"`（拒绝网关自己回传的 `summary` 槽）。前者来自要求 `reasoning_text` 的上游，后者来自另一个更严格的上游，而中继会按请求把它们路由到不同上游。
 
-两个要求并不冲突：只带 `content: [{ type: "reasoning_text" }]`、不带 `summary` 的形状对两边都成立（我们合成的项一直是这个形状，两个上游都接受过）。因此 `reasoningTextOnly` 不是「再补一个字段」，而是把整份请求规范到两边交集：文本搬家而不是丢弃，`id` 保留。
+两个要求并不冲突：只带 `content: [{ type: "reasoning_text" }]`、不带 `summary` 的形状对两边都成立。合成的项默认**两个槽都写**（见 `synthesizeReasoningItem`），因此 `reasoningTextOnly` 不是「再补一个字段」，而是把整份请求规范到两边交集：文本搬家而不是丢弃，`id` 保留。
 
 **注意 `summary` 有两处，别只清一处。** 实测在启用项级规范化之后，被拒报文里仍然出现同一个 `unknown field "summary"`：头部 256 KiB + 尾部 64 KiB 中项级 `summary` 为 0，唯一的命中是**请求参数** `"reasoning":{"effort":"high","summary":"auto"}`。也就是说上游会对两个位置分别报同一个错，只改思考项不足以消除它。
 
-## 6. 不要凭空造 reasoning item 的 id
+## 11. 不要凭空造 reasoning item 的 id
 
 reasoning item 的 `id` 由提供方铸造。伪造一个比留空更容易被网关拒绝，因此合成项只带 `summary` 与 `content` 文本槽，不带 `id`；能用响应捕获到的原始 item 时优先逐字节回传。
 
-## 7. schema 默认值必须写在 schema 里
+## 12. schema 默认值必须写在 schema 里
 
-命名空间没有存储分节时，字段默认值是经 schema 解析出来的；把默认值只写在 composition `base` 里，会让全新安装上这个开关「看起来存在、实际为空」。因此 `Config` 自己带 `default`，`normalizeSettings` 只做折叠与丢弃未知 id。
+条目的配置值是经 schema 解析出来的：把默认值只写在 composition 条目里，全新安装上这个开关会「看起来存在、实际为空」。因此 `Config` 每个字段自己带 `default` 并标 `.volatile()`，`normalizeSettings` 只做折叠与丢弃未知 id。
 
-## 8. 浏览器半有两个互不等价的服务声明
+## 13. 浏览器半有两个互不等价的服务声明
 
-`package.json` 的 `dsh.client.inject` 是**包名**，决定模块图顺序；模块导出的 `inject` 是**服务名**，决定激活时机。少写服务名会以 `cannot get property "slots" without inject` 直接失败；整段省略会竞态到一个惰性 scope，页面渲染出全部禁用的控件。另外，求值期抛错会让该插件的加载失败，所以工厂函数体整体包在 try/catch 里，答一个空操作插件。
+`package.json` 的 `dsh.client.inject` 是**包名**，决定模块图顺序；模块导出的 `inject` 是**服务名**，决定激活时机。少写服务名会以 `cannot get property "slots" without inject` 直接失败；整段省略会竞态到一个惰性 scope，页面渲染出全部禁用的控件。**写了一个已不存在的服务名更糟：该条目会永久停在 `pending (waiting for service: …)`，web boot 直接报「N entries did not activate」而整页不可用**——依赖外部服务名时必须以第一方同款写法为准。另外，求值期抛错会让该插件的加载失败，所以工厂函数体整体包在 try/catch 里，答一个空操作插件。
 
-## 9. `host` 不在 composition 加载的客户端 bundle 作用域里
+## 14. `host` 不在 composition 加载的客户端 bundle 作用域里
 
 `host` 只提供给动态客户端包。本插件的浏览器半只引用 `React` 与 `apply` 收到的东西，样式表由 bundle 自己插入（`styles` 内建存在时优先用它）。
 
-## 10. 受限沙箱拒绝派生带管道的子进程
+## 15. 受限沙箱拒绝派生带管道的子进程
 
 `node --test` 默认按文件隔离，会为每个测试文件派生带管道的子进程，在受限沙箱里以 `spawn EPERM` 失败。测试脚本因此使用 `--test-isolation=none`。这不是绕过沙箱：本套件没有依赖文件级隔离的全局状态。
 
-## 11. harness 包无法从 manifest 安装
+## 16. harness 包无法从 manifest 安装
 
 `@deepseek-ai/schemastery` 等随 `@deepseek-ai/dsh` 嵌套发布，不在公共 registry 上，因此全部列为可选 peer，测试所需的极少数由 `scripts/link-dev-deps.mjs` 在本地建目录链接（`node_modules/` 已忽略）。测试同时检查「从 PATH 与 npm prefix 定位 harness」的候选路径，避免依赖某个具体机器的布局。

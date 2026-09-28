@@ -30,7 +30,7 @@ dsh plugin --profile <profile> add github:theRMM714/llm-for-dsh
 
 ## 使用
 
-设置页里有三组开关，全部即时生效并持久化到 Profile 的 `settings.yaml`：
+设置页里的开关全部即时生效并持久化到 Profile 的配置层：
 
 | 控件 | 作用 |
 | --- | --- |
@@ -44,11 +44,11 @@ dsh plugin --profile <profile> add github:theRMM714/llm-for-dsh
 | 思考形状统一成最保守形式 | `responses-reasoning-echo` 的选项。两件事一起做：请求里**所有**思考项只保留 `reasoning_text` 内容槽（`summary` 文本搬进 `content`、`id` 保留），并且去掉请求参数 `reasoning` 里的 `summary`（只留 `effort`）。实测同一中继的两个上游对形状要求相反——一个要求回传 `reasoning_text`，另一个对 `summary` 报 `unknown field`——两处都清掉后两边都接受。默认关闭 |
 | 清理日志 | 一个按钮：清空 `llm-compat.log` 与 `llm-compat-rejected.jsonl`，就地开始新的观察。页面通过同源路由 `/llm-compat/log` 完成，Host 未提供 webserver 服务时该卡片只显示提示 |
 
-三个选项互相独立、**可以同时开启**：一个决定哪几轮写真实文本、一个决定每个注入项写几个槽、一个决定没有文本可回放时是否补占位项。
+四个选项互相独立、**可以同时开启**：分别决定哪几轮写真实文本、每个注入项写几个槽、没有文本可回放时是否补占位项，以及思考形状是否统一。
 
 实测（中继的 Responses 路由）网关校验的是**整个窗口**，不是最新一轮：窗口里任何一轮带工具调用却没有思考项，整个请求就被拒。所以覆盖面由「缺项即补」保证，`recentTurns` 只用来控制成本。
 
-写入命名空间 `llm-compat`；配置面字段：`enabled`（修复 id 列表）、`hosts`、`diagnostics`，以及上面三个选项。
+写入 `llm-compat` 条目；配置面字段：`enabled`（修复 id 列表）、`hosts`、`diagnostics`，以及上面四个选项。
 
 ## 重试
 
@@ -100,7 +100,7 @@ dsh plugin --profile <profile> add github:theRMM714/llm-for-dsh
 
 ```
 cordis.patch.yml        补丁层：挂载 llm-compat 这一行
-src/index.js            主机半：设置命名空间、llm/stream 观察者、出口拦截器
+src/index.js            主机半：设置条目与表单策略、llm/stream 观察者、出口拦截器
 src/fixes/index.js      修复目录（唯一事实来源）
 src/fixes/*.js          各修复项
 src/interceptor.js      fetch 包装：形状识别、改写、安全透传

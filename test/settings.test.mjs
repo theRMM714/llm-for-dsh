@@ -8,6 +8,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { Config, NAMESPACE, normalizeSettings, readConfig } from '../src/index.js'
+import { serializeCatalog } from '../scripts/build.mjs'
 import { DEFAULT_ENABLED } from '../src/fixes/index.js'
 
 test('the settings entry is the one the client half edits', () => {
@@ -99,6 +100,18 @@ test('the token-saving options fold to safe values', () => {
 test('an id this build does not ship is dropped', () => {
   const settings = normalizeSettings({ enabled: ['responses-reasoning-echo', 'gone', 7] })
   assert.deepEqual([...settings.enabled], ['responses-reasoning-echo'])
+})
+
+test('the embedded catalog defaults every editable field', () => {
+  // The browser bundle carries its own copy of the defaults, restated in
+  // scripts/build.mjs because the build must not import the Host entry. This is
+  // the guard that keeps the two in step.
+  const catalog = JSON.parse(serializeCatalog())
+  const fields = Object.keys(Config.dict ?? {})
+  assert.ok(fields.length > 0, 'the schema must expose its fields')
+  for (const field of fields) {
+    assert.ok(field in catalog.defaults, field + ' must have an embedded default')
+  }
 })
 
 test('a malformed value falls back instead of disabling the plugin', () => {

@@ -376,6 +376,58 @@ test('the observer falls back to the terminal response when no item events arriv
   assert.equal(result.text, '终')
 })
 
+test('an incomplete terminal response counts as terminal', () => {
+  const observer = createResponseObserver()
+  observer.feed({
+    type: 'response.incomplete',
+    response: {
+      output: [
+        { type: 'reasoning', id: 'rs_3', content: [{ type: 'reasoning_text', text: '断' }] },
+        { type: 'function_call', call_id: 'call_9' },
+      ],
+    },
+  })
+  const result = observer.result()
+  assert.deepEqual(result.callIds, ['call_9'])
+  assert.equal(result.text, '断')
+})
+
+test('a terminal payload backfills the encrypted payload a per-item event omitted', () => {
+  const observer = createResponseObserver()
+  observer.feed({ type: 'response.output_item.done', item: { type: 'reasoning', id: 'rs_4', content: [{ type: 'reasoning_text', text: '密' }] } })
+  observer.feed({ type: 'response.output_item.done', item: { type: 'function_call', id: 'fc_4', call_id: 'call_10' } })
+  observer.feed({
+    type: 'response.completed',
+    response: { output: [{ type: 'reasoning', id: 'rs_4', encrypted_content: 'ENCRYPTED' }] },
+  })
+  const result = observer.result()
+  assert.deepEqual(result.callIds, ['call_10'])
+  assert.equal(result.items.length, 1)
+  assert.equal(result.items[0].encrypted_content, 'ENCRYPTED')
+  assert.equal(result.text, '密')
+})
+
+test('a captured encrypted payload is kept, and an unpaired terminal item is ignored', () => {
+  const observer = createResponseObserver()
+  observer.feed({
+    type: 'response.output_item.done',
+    item: { type: 'reasoning', id: 'rs_5', encrypted_content: 'KEEP', content: [{ type: 'reasoning_text', text: 'x' }] },
+  })
+  observer.feed({ type: 'response.output_item.done', item: { type: 'function_call', call_id: 'call_11' } })
+  observer.feed({
+    type: 'response.completed',
+    response: {
+      output: [
+        { type: 'reasoning', id: 'rs_5', encrypted_content: 'REPLACE' },
+        { type: 'reasoning', encrypted_content: 'NO_ID' },
+      ],
+    },
+  })
+  const result = observer.result()
+  assert.equal(result.items.length, 1)
+  assert.equal(result.items[0].encrypted_content, 'KEEP')
+})
+
 test('the observer tolerates unrelated and malformed events', () => {
   const observer = createResponseObserver()
   observer.feed(null)

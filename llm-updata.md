@@ -77,7 +77,7 @@ DSH 0.1.7-rc.2 更换了设置模型，插件建立在旧模型上，**两半同
 | 1 | 宿主半设置层适配 | `src/index.js` 改造 + 测试同步 | ✔ 已完成 |
 | 2 | 客户端半迁移到 `configForms` | `src/client.js` 改造 | ✔ 已完成 |
 | 3 | 真机验收 | V1–V4、V7 实测 | ☐ |
-| 4 | 缺陷清理 | §七 的 D1–D15 | ☐ |
+| 4 | 缺陷清理 | §七 的 D1–D15 | ✔ 已完成 |
 | 5 | 文档同步与销账 | README/DESIGN/PITFALLS 定稿、删除本文件 | ☐ |
 
 **销账规则**
@@ -154,7 +154,21 @@ DSH 0.1.7-rc.2 更换了设置模型，插件建立在旧模型上，**两半同
 
 ### 阶段 4 · 缺陷清理
 
-见 §七。
+- [x] D4 观察者补 `response.incomplete`（与 `response.completed` 同等处理）
+- [x] D5 终态回填 `encrypted_content`（按提供方 item id 配对；已捕获的值不覆盖）
+- [x] D1/D2/D3/D15 把「相对官方 schema / 适配器的有意偏离」写成明确约束
+- [x] D6/D11 修正 `responses-reasoning-echo.js` 的模块头与 `rewrite()` 的 JSDoc（`@param body` 重复、散文错挂）
+- [x] D10 `build.mjs` 的 `defaults` 补 `reasoningTextOnly`，**并新增防漂移测试**
+- [x] D7/D8/D9/D12 文档与代码不符、编号归一
+- [x] D13 删除 15 个 `.tmp-*.mjs` 探针脚本（30.3 KB）
+- [x] D14 `.gitignore` 增补 `.tmp-*`
+- [x] 顺带修 E2：`TESTING.md` 的覆盖说明仍描述旧设置契约
+- [x] `node scripts/build.mjs --check` + `npm test` → **102/102 通过**
+
+**阶段 4 证据**
+- 新增 3 条观察者测试：`response.incomplete` 计入终态、终态回填 `encrypted_content`、已捕获值不被覆盖且无 id 的终态项被忽略
+- 新增 1 条防漂移测试：`Config` 的每个字段都必须在嵌入目录的 `defaults` 里有对应项（根治 D10 这类不同步）
+- `PITFALLS.md` 编号归一为 1–16；#13 补入本次教训（写了一个已不存在的服务名会让条目永久 pending、整页不可用）
 
 ### 阶段 5 · 文档同步与销账
 
@@ -180,37 +194,38 @@ DSH 0.1.7-rc.2 更换了设置模型，插件建立在旧模型上，**两半同
 
 | # | 位置 | 问题 | 状态 |
 | --- | --- | --- | --- |
-| D1 | `src/fixes/responses-reasoning-echo.js:138-146` | 合成项缺官方必填 `id`（`ResponseReasoningItem.id: string`，SDK `responses.d.ts:4595`）。**设计如此**（伪造 id 更易被拒，且网关接受过），需写成明确约束 | 待处理 |
-| D2 | 同上 `:140` | `singleReasoningSlot` 下同时缺必填 `summary`（SDK:4599），产出比默认更不合 schema 的项 | 待处理 |
-| D3 | 同上 `:345-347` | `reasoningTextOnly` 删除请求级 `reasoning.summary`，而 pi-ai 在请求了思考级别时恒设该字段（`openai-responses.js:253-263`） | 待处理 |
-| D4 | 同上 `:399` | 响应观察只认 `response.completed`，漏 `response.incomplete`（pi-ai 二者同等对待，`openai-responses-shared.js:637`） | 待处理 |
-| D5 | 同上 `:403` | 已见逐项事件时不再从终态回填 `encrypted_content`（pi-ai 始终回填，`openai-responses-shared.js:417-432`） | 待处理 |
-| D15 | 同上 `:110-118` | 文本合并用 summary+content，pi-ai 用 `summary \|\| content`（`SH:582-584`） | 待处理 |
+| D1 | `src/fixes/responses-reasoning-echo.js` `synthesizeReasoningItem` | 合成项缺官方必填 `id`（SDK `responses.d.ts:4595`）。**有意偏离**（伪造 id 更易被拒，网关接受过），已写成明确约束 | 已记录 |
+| D2 | 同上 | `singleReasoningSlot` 下同时缺必填 `summary`（SDK:4599）。**有意为之**：网关会拒 `summary`，该选项正是为此存在，已写成明确约束 | 已记录 |
+| D3 | 同上 `rewrite()` 的请求参数块 | `reasoningTextOnly` 删除请求级 `reasoning.summary`，而适配器在请求了思考级别时会设该字段（`openai-responses.js:253-263`）。注释已写明这是必须删的一项 | 已记录 |
+| D4 | 同上 `createResponseObserver` | 响应观察只认 `response.completed`，漏 `response.incomplete`（pi-ai 二者同等对待） | ✔ 已修 |
+| D5 | 同上 `createResponseObserver` | 已见逐项事件时不再从终态回填 `encrypted_content`（pi-ai 始终回填） | ✔ 已修 |
+| D15 | 同上 `reasoningTextOf` | 文本合并用 summary+content，适配器用 `summary \|\| content`。**有意不同**（该文本用于合成 `reasoning_text`，合并不丢东西） | 已记录 |
 
 ### C 组 · 文档与代码不符
 
 | # | 位置 | 问题 | 状态 |
 | --- | --- | --- | --- |
-| D6 | `responses-reasoning-echo.js:23-24` | 头注释称插在 `function_call` 之前，实现插在**轮首**（`:332`） | 待处理 |
-| D7 | `PITFALLS.md:45` | 称"合成的项一直是 content-only"，代码默认**双槽** | 待处理 |
-| D8 | `DESIGN.md:75, 84` | 「声明两项」「两个默认值」，实际**四项** | 待处理 |
-| D9 | `README.md:33, 47, 51` | 「三组开关」「三个选项」，实际四项 | 待处理 |
-| D10 | `scripts/build.mjs:84-93` | 嵌入浏览器的 `defaults` 漏 `reasoningTextOnly`（`Config` 有而 `defaults` 无） | 待处理 |
-| D11 | `responses-reasoning-echo.js:249-269` | JSDoc 中 `@param body` 出现两次，轮次顺序的散文错挂在第一个上 | 待处理 |
-| D12 | `PITFALLS.md:25` | 编号 `## 5.0` 紧跟 `## 5`，随后 5.1–5.4，属追加式编号 | 待处理 |
+| D6 | `responses-reasoning-echo.js` 模块头 | 头注释称插在 `function_call` 之前，实现插在**轮首** | ✔ 已修 |
+| D7 | `PITFALLS.md` 第 10 条 | 称"合成的项一直是 content-only"，代码默认**双槽** | ✔ 已修 |
+| D8 | `DESIGN.md` 修复选项节 | 「声明两项」「两个默认值」，实际**四项** | ✔ 已修 |
+| D9 | `README.md` 使用节 | 「三组开关」「三个选项」，实际四项；并改为新设置模型的表述 | ✔ 已修 |
+| D10 | `scripts/build.mjs` `serializeCatalog` | 嵌入浏览器的 `defaults` 漏 `reasoningTextOnly`（`Config` 有而 `defaults` 无） | ✔ 已修（并加防漂移测试） |
+| D11 | `responses-reasoning-echo.js` `rewrite()` JSDoc | `@param body` 出现两次，轮次顺序的散文错挂在第一个上 | ✔ 已修 |
+| D12 | `PITFALLS.md` | 编号 `## 5.0` 紧跟 `## 5`，随后 5.1–5.4，属追加式编号 | ✔ 已修（归一为 1–16） |
 
 ### D 组 · 死代码与仓库卫生
 
 | # | 位置 | 问题 | 状态 |
 | --- | --- | --- | --- |
-| D13 | 仓库根 | 15 个 `.tmp-*.mjs` 一次性探针（30.3 KB），已确认是日志配对/压缩时间线/体积观测脚本 | 待处理 |
-| D14 | `.gitignore` | 只有 `*.tmp`，**不匹配** `.tmp-*.mjs`，导致 15 个文件长期以未跟踪状态出现 | 待处理 |
+| D13 | 仓库根 | 15 个 `.tmp-*.mjs` 一次性探针（30.3 KB） | ✔ 已删 |
+| D14 | `.gitignore` | 只有 `*.tmp`，**不匹配** `.tmp-*.mjs` | ✔ 已修（增补 `.tmp-*`） |
 
 ### E 组 · 新增（发现即登记，不混入当前阶段）
 
 | # | 位置 | 问题 | 状态 |
 | --- | --- | --- | --- |
-| E1 | `src/index.js` 日志路由块 | 用 `ctx.get('webServer')` 取服务；激活时机早于 webServer 注册时拿到 `undefined`，路由被**静默跳过**（探针实测 404）。改为第一方的 `ctx.inject(['webServer'], webCtx => webCtx.effect(() => webCtx.webServer.register(route)))` 后恢复 200 | 已修 |
+| E1 | `src/index.js` 日志路由块 | 用 `ctx.get('webServer')` 取服务；激活早于该服务注册时拿到 `undefined`，路由被**静默跳过**（探针实测 404）。改用 `ctx.inject(['webServer'], …)` 后恢复 200 | ✔ 已修 |
+| E2 | `TESTING.md` 宿主半覆盖行 | 仍描述旧设置契约（「命名空间注册（含 schema 与 `applies: 'live'`）」） | ✔ 已修 |
 
 ---
 

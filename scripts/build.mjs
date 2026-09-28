@@ -88,6 +88,7 @@ export function serializeCatalog() {
       recentTurns: 0,
       singleReasoningSlot: false,
       placeholderReasoning: false,
+      reasoningTextOnly: false,
       retries: [...DEFAULT_RETRY_RULES],
       retryAttempts: DEFAULT_RETRY_ATTEMPTS,
     },

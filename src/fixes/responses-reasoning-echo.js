@@ -1,27 +1,21 @@
 /**
  * Fix: echo the thinking block back on an OpenAI-Responses request.
  *
- * WHY THIS EXISTS
+ * THE CONSTRAINT IT ANSWERS
  *
- * A relay speaking the Responses protocol in thinking mode demands that the
- * previous turn's reasoning be passed back with the history. pi-ai's Responses
- * builder only replays a reasoning item that still carries its
- * `thinkingSignature`:
- *
- *     if (block.thinkingSignature) output.push(JSON.parse(block.thinkingSignature))
- *
- * and the signature is exactly what DSH drops when the durable replay state
- * stops being usable — a model or adapter switch, or a compaction that
- * re-indexes assistant content. `dsh-llm-pi-ai` then degrades the message
- * through `foreignAssistant()`, which rebuilds the thinking block WITHOUT a
- * signature, so the wire body carries the assistant's tool call with no
- * reasoning item before it and the gateway answers 400
- * ("The `reasoning_text` in the thinking mode must be passed back to the API").
+ * A relay speaking the Responses protocol in thinking mode requires every turn
+ * that carries a tool call to be accompanied by that turn's reasoning item, and
+ * answers 400 with "The `reasoning_text` in the thinking mode must be passed
+ * back to the API" when one is missing. A wire body can arrive without it: the
+ * replayed item survives only as long as the durable replay state does, and
+ * `dsh-llm-pi-ai` degrades a message whose replay state is gone into a thinking
+ * block that carries no signature — the field its Responses builder requires
+ * before it will put an item back on the wire.
  *
  * WHAT THIS DOES
  *
- * Immediately before each assistant turn's `function_call` / `custom_tool_call`
- * item, insert the reasoning items that turn produced. Two sources, in order:
+ * At the start of each assistant turn that carries a tool call, insert the
+ * reasoning items that turn produced. Two sources, in order:
  *
  *  1. the original reasoning item captured verbatim from the streamed response
  *     of that same turn (highest fidelity: it keeps the provider's `id` and
@@ -106,7 +100,13 @@ export function observes(url) {
   return responsesUrl(url) !== undefined
 }
 
-/** The model-facing strings of one reasoning item, in wire order. */
+/**
+ * The model-facing strings of one reasoning item, in wire order.
+ *
+ * Summary and content parts are concatenated rather than treated as
+ * alternatives, because this text is reused to synthesize a `reasoning_text`
+ * part where keeping both loses nothing.
+ */
 function reasoningTextOf(item) {
   const parts = []
   if (Array.isArray(item.summary)) {
@@ -121,15 +121,17 @@ function reasoningTextOf(item) {
 /**
  * A minimal reasoning item carrying recovered thinking text.
  *
- * No `id` is invented: ids are provider-minted, and a wrong one is rejected
- * where a missing one is often tolerated.
+ * This departs from the provider schema in two measured ways:
  *
- * By default BOTH text slots are filled — the schema's summary and the plain
- * `reasoning_text` part — because the refusal this fix answers names the latter
- * while the presentation schema reads the former, and the doubled copy is the
- * price of not knowing which one a particular gateway validates.
- * `singleReasoningSlot` drops the summary copy, halving the injected text at the
- * cost of that insurance.
+ *  - no `id` is invented. The schema declares one, but ids are provider-minted,
+ *    and a wrong one is refused where a missing one is tolerated;
+ *  - BOTH text slots are filled by default — the schema's `summary` and the plain
+ *    `reasoning_text` part — because one relay answers `unknown field "summary"`
+ *    for the former while another demands the latter by name.
+ *
+ * `singleReasoningSlot` keeps only the `reasoning_text` part: it halves the
+ * injected text and drops a field the schema declares required, which is the
+ * trade a relay that rejects `summary` outright asks for.
  *
  * @param text - non-empty thinking text.
  * @param options - `{ singleReasoningSlot }`.
@@ -254,18 +256,15 @@ function cloneItem(item) {
  * `function_call_output`. At most one injection happens per turn: one reasoning
  * item covers every parallel tool call of that turn.
  *
- * @param body - the parsed request body; `input` is replaced when it changed.
- * The reasoning item belongs at the START of its turn: the Responses protocol
- * orders a turn's items as reasoning, then the assistant message, then the tool
- * calls — which is exactly how pi-ai emits the ones it can replay itself. A fix
- * that inserted the item just before the tool call leaves a turn that also has
- * assistant text looking like `message, reasoning, function_call`: the wrong
- * order, and the very thing a gateway validates when it complains that the
- * thinking was not passed back.
+ * The item goes to the START of its turn rather than immediately before the tool
+ * call: the protocol orders a turn as reasoning, then the assistant message,
+ * then the tool calls, so a turn that also carries assistant text is otherwise
+ * left as `message, reasoning, function_call`.
  *
- * @param context - `{ stash, recentTurns?, singleReasoningSlot?, placeholderReasoning?, reasoningTextOnly? }`. `recentTurns`
- *   bounds the work to the newest N assistant turns (0 or absent means every turn),
- *   which is what keeps a long session from re-sending megabytes of old thinking.
+ * @param body - the parsed request body; `input` is replaced when it changed.
+ * @param context - `{ stash, recentTurns?, singleReasoningSlot?, placeholderReasoning?, reasoningTextOnly? }`.
+ *   `recentTurns` bounds which turns carry recovered text (0 or absent means every
+ *   turn), which is what keeps a long session from re-sending old thinking.
  * @returns how many reasoning items were inserted or reshaped.
  */
 export function rewrite(body, context) {
@@ -338,9 +337,10 @@ export function rewrite(body, context) {
   /*
    * The request PARAMETER is validated by the same strict upstream, and the
    * item-level pass above cannot reach it: `reasoning` accepts `effort` but answers
-   * `json: unknown field "summary"` for the summary request. Dropping it costs the
-   * provider's summary text, which this fix already regenerates as `reasoning_text`,
-   * so coverage is unaffected.
+   * `json: unknown field "summary"` for the summary request. The adapter sets that
+   * field whenever a thinking level is requested, so it has to be dropped here for
+   * the strict upstream to accept the request at all. The provider's summary text
+   * is regenerated as `reasoning_text`, so coverage is unaffected.
    */
   if (normalizeShape && body.reasoning !== null && typeof body.reasoning === 'object' && 'summary' in body.reasoning) {
     delete body.reasoning.summary
@@ -364,8 +364,9 @@ function openTurn(output, turns) {
  * The stream is the only place the original reasoning item is available: DSH's
  * durable replay state is what goes missing, so the item has to be kept here as
  * it passes by. Collection happens on `response.output_item.done` (the finalized
- * item) and falls back to the terminal `response.completed` payload when a
- * gateway sends no per-item events.
+ * item) and falls back to the terminal payload of `response.completed` or
+ * `response.incomplete` when a gateway sends no per-item events; either terminal
+ * event also backfills payload a per-item event omitted.
  *
  * @returns an observer with `feed(event)` and `result()`.
  */
@@ -385,6 +386,30 @@ export function createResponseObserver() {
     }
   }
 
+  /**
+   * Give a captured item the encrypted payload only the terminal event carries.
+   *
+   * A terminal reasoning item may carry encrypted content its per-item event
+   * omitted, so a captured item still missing it is completed in place before it
+   * is replayed. Items pair by the provider's own id; a terminal item without one
+   * cannot be paired and is left alone.
+   *
+   * @param responseOutput - the terminal `output` array.
+   */
+  const backfillEncryptedContent = (responseOutput) => {
+    for (const item of responseOutput) {
+      if (item === null || typeof item !== 'object') continue
+      if (item.type !== 'reasoning') continue
+      if (typeof item.encrypted_content !== 'string' || item.encrypted_content.length === 0) continue
+      if (typeof item.id !== 'string' || item.id.length === 0) continue
+      for (const captured of items) {
+        if (captured.id !== item.id) continue
+        if (typeof captured.encrypted_content === 'string' && captured.encrypted_content.length > 0) continue
+        captured.encrypted_content = item.encrypted_content
+      }
+    }
+  }
+
   return {
     /**
      * Feed one decoded SSE event.
@@ -396,11 +421,12 @@ export function createResponseObserver() {
         collect(event.item)
         return
       }
-      if (event.type === 'response.completed') {
+      if (event.type === 'response.completed' || event.type === 'response.incomplete') {
         const output = event.response?.output
         if (Array.isArray(output)) {
           terminalOutputSeen = true
           if (items.length === 0 && callIds.length === 0) for (const item of output) collect(item)
+          else backfillEncryptedContent(output)
         }
       }
     },

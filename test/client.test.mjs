@@ -2,8 +2,8 @@
  * Tests for the browser half.
  *
  * The bundle is loaded through the page's own module mechanism (a
- * `window.__ModuleLoader__.load` call) so the two declarations that have to agree
- * — the service list this module injects and the package list in `package.json` —
+ * \`window.__ModuleLoader__.load\` call) so the two declarations that have to agree
+ * — the service list this module injects and the package list in \`package.json\` —
  * are exercised rather than assumed.
  *
  * @module llm-for-dsh/test/client.test
@@ -62,29 +62,41 @@ function loadBundle(source) {
 /**
  * A context that behaves like the page's.
  * @param provided - the service names this page exposes.
+ * @param options - \`{ served }\` controls whether the form service reports the entry as served.
  * @returns the context plus a recorder.
  */
-function fakeContext(provided = ['slots', 'settingsScope']) {
-  const calls = { slots: [], registered: null, effects: 0, bound: null }
+function fakeContext(provided = ['slots', 'configForms'], options = {}) {
+  const served = options.served !== false
+  const calls = { slots: [], registered: null, effects: 0, formEntryId: null, watched: null }
+  const form = {
+    getSnapshot: () => ({ status: 'ready', value: {}, revision: 1, writable: true, mode: 'host' }),
+    subscribe: () => () => {},
+    set: () => Promise.resolve(),
+    unset: () => Promise.resolve(),
+    mutate: () => Promise.resolve(),
+  }
   const services = {
     slots: {
       inject(key, callback) {
         calls.slots.push(key)
         callback()
+        return () => {}
       },
       register(spec, component) {
         calls.registered = { spec, component }
+        return () => {}
       },
     },
-    settingsScope: {
-      bind(spec) {
-        calls.bound = spec
-        return {
-          getSnapshot: () => ({ status: 'ready', value: {}, revision: 1, writable: true, mode: 'host' }),
-          subscribe: () => () => {},
-          set: () => Promise.resolve(),
-          unset: () => Promise.resolve(),
-          mutate: () => Promise.resolve(),
+    configForms: {
+      get(entryId) {
+        calls.formEntryId = entryId
+        return form
+      },
+      whileServed(namespaces, register) {
+        calls.watched = namespaces
+        const off = served ? register(new Set(namespaces)) : undefined
+        return () => {
+          if (typeof off === 'function') off()
         }
       },
     },
@@ -115,7 +127,7 @@ function fakeContext(provided = ['slots', 'settingsScope']) {
 test('the bundle registers under the package name with both service declarations', () => {
   const loaded = loadBundle(SOURCE)
   assert.equal(loaded.id, 'llm-for-dsh')
-  assert.deepEqual(loaded.exports.inject, ['slots', 'settingsScope'])
+  assert.deepEqual(loaded.exports.inject, ['slots', 'configForms'])
   assert.equal(typeof loaded.exports.apply, 'function')
 })
 
@@ -188,17 +200,28 @@ test('each declared fix option renders one control', () => {
   assert.deepEqual(button[0].children, ['清理日志'])
 })
 
-test('activation binds the shared namespace and registers the settings page', () => {
+test('activation binds the entry form and registers the settings page', () => {
   const loaded = loadBundle(SOURCE)
   const { ctx, calls } = fakeContext()
   loaded.exports.apply(ctx)
-  assert.equal(calls.bound.namespace, 'llm-compat')
+  assert.equal(calls.formEntryId, 'llm-compat')
+  assert.deepEqual(calls.watched, ['llm-compat'])
   assert.deepEqual(calls.slots, ['settings.section'])
   assert.equal(calls.registered.spec.id, 'llm-compat')
   assert.equal(calls.registered.spec.name, 'settings.section')
   // The settings entry names the TOOL; the page title stays the fix list.
   assert.equal(calls.registered.spec.label(), 'LLM 工具')
-  assert.equal(calls.effects, 1)
+  // One effect for the stylesheet and one for the served-namespace watch.
+  assert.equal(calls.effects, 2)
+})
+
+test('the section waits until the Host serves this entry', () => {
+  const loaded = loadBundle(SOURCE)
+  const { ctx, calls } = fakeContext(['slots', 'configForms'], { served: false })
+  loaded.exports.apply(ctx)
+  assert.deepEqual(calls.watched, ['llm-compat'])
+  assert.deepEqual(calls.slots, [])
+  assert.equal(calls.registered, null)
 })
 
 test('the registered page renders one checkbox row per fix', () => {

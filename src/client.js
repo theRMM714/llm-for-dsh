@@ -11,8 +11,9 @@
  * and the diagnostic switch. The fix list is EMBEDDED at build time from the
  * Host's own catalog (`__LLM_COMPAT_CATALOG__`), so the page and the Host enforce
  * one list and the browser needs no channel to the Host. Every tick is one field
- * write on the `llm-compat` namespace, so it applies to the model's next request
- * and survives a restart in the profile's `settings.yaml`.
+ * write on the `llm-compat` entry through the shared configuration-form service,
+ * so it applies to the model's next request and survives a restart in the
+ * profile's Cordis patch.
  *
  * THREE FAILURE MODES THIS FILE IS BUILT TO SURVIVE, each already observed in
  * this plugin family:
@@ -62,9 +63,9 @@ window.__ModuleLoader__.load({
       /**
        * Service names this page reads. The package names that order the module
        * graph live in `package.json`; this list is what makes activation wait for
-       * the settings domain.
+       * the settings form service, which the settings domain provides.
        */
-      const inject = ['slots', 'settingsScope']
+      const inject = ['slots', 'configForms']
 
       /** One plain status card, used for every degraded state. */
       const message = (text) =>
@@ -190,7 +191,7 @@ window.__ModuleLoader__.load({
       /** Explain why writes are unavailable, in the page's own status line. */
       function describeUnavailable(snapshot) {
         if (snapshot.mode === 'memory') return '当前页面不以本机模式连接 Host，改动不会持久化。'
-        return 'Host 未暴露 llm-compat 命名空间，或读取尚未完成。'
+        return 'Host 未暴露 llm-compat 条目，或读取尚未完成。'
       }
 
       /** Parse the host field: one hostname per line or comma. */
@@ -512,7 +513,7 @@ window.__ModuleLoader__.load({
           React.createElement(
             'p',
             { className: 'llm-compat-status' },
-            '页面版本 ' + BUILD + ' · ' + (editable ? '改动会持久化到 Profile 的 settings.yaml' : describeUnavailable(snapshot)),
+            '页面版本 ' + BUILD + ' · ' + (editable ? '改动会持久化到 Profile 的配置层' : describeUnavailable(snapshot)),
           ),
         )
       }
@@ -546,11 +547,11 @@ window.__ModuleLoader__.load({
         // Declared in `inject`, so this resolves before apply runs; the lookup and
         // the inert fallback are kept as a net, and reaching one means the
         // declaration and the runtime disagree.
-        const binder = service(ctx, 'settingsScope')
+        const forms = service(ctx, 'configForms')
         const scope =
-          binder !== undefined && typeof binder.bind === 'function'
-            ? binder.bind({ namespace: NAMESPACE, decode: decodeSection })
-            : inertScope('设置服务未挂载（settingsScope 服务缺失），页面只能显示当前状态。')
+          forms !== undefined && typeof forms.get === 'function'
+            ? forms.get(NAMESPACE)
+            : inertScope('设置表单服务未挂载（configForms 服务缺失），页面只能显示当前状态。')
 
         const slots = service(ctx, 'slots')
         if (slots === undefined || typeof slots.inject !== 'function' || typeof slots.register !== 'function') {
@@ -558,12 +559,23 @@ window.__ModuleLoader__.load({
           // nothing that should fail this plugin's load over it.
           return
         }
-        slots.inject('settings.section', () =>
-          slots.register(
-            { name: 'settings.section', id: 'llm-compat', order: 31, label: () => 'LLM 工具' },
-            () => React.createElement(Boundary, null, React.createElement(CompatSettingsPage, { scope })),
-          ),
-        )
+
+        /** Publish the section; the form service hands back its own disposer. */
+        const publish = () =>
+          slots.inject('settings.section', () =>
+            slots.register(
+              { name: 'settings.section', id: NAMESPACE, order: 31, label: () => 'LLM 工具' },
+              () => React.createElement(Boundary, null, React.createElement(CompatSettingsPage, { scope })),
+            ),
+          )
+
+        if (forms !== undefined && typeof forms.whileServed === 'function') {
+          // The form service knows which entries the Host currently serves, so the
+          // section appears exactly when this plugin's entry does.
+          ctx.effect(() => forms.whileServed([NAMESPACE], publish), 'llm-compat: settings section')
+          return
+        }
+        publish()
       }
 
       /* @llm-compat-css-begin */

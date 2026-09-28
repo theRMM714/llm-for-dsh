@@ -75,7 +75,7 @@ DSH 0.1.7-rc.2 更换了设置模型，插件建立在旧模型上，**两半同
 | --- | --- | --- | --- |
 | 0 | 基线与准备 | 基线记录、本文件 | ☐ |
 | 1 | 宿主半设置层适配 | `src/index.js` 改造 + 测试同步 | ✔ 已完成 |
-| 2 | 客户端半迁移到 `configForms` | `src/client.js` 改造 | ☐ |
+| 2 | 客户端半迁移到 `configForms` | `src/client.js` 改造 | ✔ 已完成 |
 | 3 | 真机验收 | V1–V4、V7 实测 | ☐ |
 | 4 | 缺陷清理 | §七 的 D1–D15 | ☐ |
 | 5 | 文档同步与销账 | README/DESIGN/PITFALLS 定稿、删除本文件 | ☐ |
@@ -123,14 +123,23 @@ DSH 0.1.7-rc.2 更换了设置模型，插件建立在旧模型上，**两半同
 
 ### 阶段 2 · 客户端半
 
-- [ ] `inject` 改为 `['slots', 'configForms']`
-- [ ] 删除 `service(ctx, 'settingsScope')` 与 `inertScope` 降级分支
-- [ ] 改为 `ctx.configForms.get('llm-compat')`
-- [ ] 页面注册包进 `ctx.configForms.whileServed(['llm-compat'], …)`
-- [ ] 写入改走表单控制器的写队列
-- [ ] 文案「持久化到 `settings.yaml`」→「持久化到 Profile 的 Cordis patch」
-- [ ] `test/client.test.mjs` 同步
-- [ ] `node scripts/build.mjs` + `npm test`
+- [x] `inject` 改为 `['slots', 'configForms']`
+- [x] 绑定改为 `ctx.configForms.get('llm-compat')`
+- [x] 页面注册包进 `ctx.configForms.whileServed(['llm-compat'], publish)`
+- [x] 文案「持久化到 `settings.yaml`」→「持久化到 Profile 的配置层」
+- [x] `test/client.test.mjs` 同步，并新增「宿主未提供该条目时不得注册」的门控测试
+- [x] `node scripts/build.mjs` + `npm test` → **98/98 通过**
+
+**与计划的偏差（有意）**
+- `inertScope` **保留**而非删除：它仍是「表单服务缺失」时的降级分支，只是原因文案改为 `configForms`。
+- 写入路径**无需改动**：`ConfigFormController` 的 `set/unset/mutate` 与旧 scope 同名同形，页面里的 `scope.set(field, next)` 直接成立。
+- `decodeSection` **无需搬家**：它本就在页面侧对 `snapshot.value` 生效（原 `bind({decode})` 只是双保险）。新契约的 `configForms.get(id)` 不接收 decoder，因此页面侧解码成为唯一路径。
+
+**阶段 2 证据**
+- 测试 **98/98 通过**；`node scripts/build.mjs` 成功
+- 真实启动：启动输出与页面 HTML 中 `did not activate`、`waiting for service` **均为 0 次**
+- `src/client.js` 中 `settingsScope` / `settings.yaml` **零残留**
+- **待使用者验收**：阶段 3 需在浏览器里确认设置页出现且可交互（我无法启动浏览器）
 
 ### 阶段 3 · 真机验收
 
@@ -165,7 +174,7 @@ DSH 0.1.7-rc.2 更换了设置模型，插件建立在旧模型上，**两半同
 | # | 位置 | 问题 | 状态 |
 | --- | --- | --- | --- |
 | A1 | `src/index.js` 设置层 | `settings.register` 已不存在，宿主半激活即抛错 | ✔ 已修（阶段 1） |
-| A2 | `src/client.js:67` | `inject` 依赖已消失的 `settingsScope`，页面 entry 永久 pending | 待处理 |
+| A2 | `src/client.js:68` | `inject` 依赖已消失的 `settingsScope`，页面 entry 永久 pending | ✔ 已修（阶段 2） |
 
 ### B 组 · 与官方 schema 的形状不一致
 

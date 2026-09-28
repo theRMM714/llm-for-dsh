@@ -1,11 +1,11 @@
 /**
- * Host-half wiring tests: the settings namespace is registered, the request
- * observer is attached to `llm/stream`, the interceptor is installed and
- * removable, and a profile without a settings service still activates.
+ * Host-half wiring tests: the settings policy is declared, the request observer
+ * is attached to \`llm/stream\`, the interceptor is installed and removable, and a
+ * profile without a settings service still activates.
  *
- * The point is the WIRING, not the fix logic — a namespace that is never
- * registered leaves the settings page silently read-only, which is exactly the
- * kind of half-initialised plugin these tests exist to catch.
+ * The point is the WIRING, not the fix logic — a settings entry that is never
+ * offered to the form service leaves the page permanently inactive, which is
+ * exactly the kind of half-initialised plugin these tests exist to catch.
  *
  * @module llm-for-dsh/test/host.test
  */
@@ -14,8 +14,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { Config, NAMESPACE, normalizeSettings, setup } from '../src/index.js'
 import { DEFAULT_ENABLED } from '../src/fixes/index.js'
+import { setup } from '../src/index.js'
 
 /** The harness request one observed step carries. */
 const MESSAGES = [
@@ -29,29 +29,42 @@ const MESSAGES = [
 ]
 
 /**
+ * A resolved config whose members are runtime references, the way the loader
+ * builds one: the plugin reads \`get()\` and the owner replaces the value.
+ *
+ * @param initial - starting values.
+ * @returns the config plus a setter that replaces one referenced value.
+ */
+function referencedConfig(initial = {}) {
+  const values = { ...initial }
+  const config = {}
+  for (const key of Object.keys(values)) config[key] = { get: () => values[key] }
+  return {
+    config,
+    /** Replace one member's value, as a settings edit would. */
+    set(key, value) {
+      values[key] = value
+      config[key] = { get: () => values[key] }
+    },
+  }
+}
+
+/**
  * A context that records everything the Host half does.
- * @param options - `{ withSettings }` to exercise a profile without a settings service.
+ * @param options - \`{ withSettings, withWebServer }\` to exercise a profile missing a service.
  * @returns the context plus the recorder.
  */
 function fakeContext(options = {}) {
   const withSettings = options.withSettings !== false
-  const calls = { registered: null, effects: [], listeners: [], watchListeners: new Set(), routes: [] }
-  let value = options.settings ?? {}
+  const fiber = { marker: 'fiber' }
+  const calls = { fiber, configured: [], effects: [], listeners: [], routes: [] }
 
-  const scope = {
-    get: () => value,
-    watch(listener) {
-      calls.watchListeners.add(listener)
-      return () => calls.watchListeners.delete(listener)
-    },
-  }
   const settings = withSettings
     ? {
-        register(namespace, schema, spec) {
-          calls.registered = { namespace, schema, spec }
-          return scope
+        configure(presentation, owner) {
+          calls.configured.push({ presentation, owner })
+          return () => {}
         },
-        update() {},
       }
     : undefined
 
@@ -65,11 +78,26 @@ function fakeContext(options = {}) {
       }
 
   const ctx = {
-    settings,
+    fiber,
     get: (name) => {
       if (name === 'settings') return settings
       if (name === 'webServer') return webServer
       return undefined
+    },
+    /**
+     * The optional child scopes the plugin reaches services through. Each one
+     * runs only when its service exists, exactly like the loader's own gating.
+     */
+    inject(names, callback) {
+      const child = (service) => ({
+        ...service,
+        effect(cb) {
+          calls.effects.push(cb())
+          return () => {}
+        },
+      })
+      if (names.includes('settings') && settings !== undefined) callback(child({ settings }))
+      if (names.includes('webServer') && webServer !== undefined) callback(child({ webServer }))
     },
     effect(callback) {
       calls.effects.push(callback())
@@ -78,11 +106,6 @@ function fakeContext(options = {}) {
     on(name, listener, options) {
       calls.listeners.push({ name, listener, options })
       return () => {}
-    },
-    /** Drive the settings document the way the service would. */
-    publish(next) {
-      value = next
-      for (const listener of calls.watchListeners) listener(next)
     },
   }
   return { ctx, calls }
@@ -118,7 +141,7 @@ async function withPlugin(options, run) {
   const home = mkdtempSync(join(tmpdir(), 'llm-compat-host-'))
   process.env.DSH_HOME = home
   const { ctx, calls } = fakeContext(options)
-  const plugin = setup(ctx, options.entry ?? {})
+  const plugin = setup(ctx, options.config ?? {})
   try {
     await run({ plugin, ctx, calls })
   } finally {
@@ -130,14 +153,13 @@ async function withPlugin(options, run) {
   }
 }
 
-test('activation registers the namespace, the observer and the interceptor', async () => {
-  await withPlugin({}, ({ plugin, calls }) => {
-    assert.equal(calls.registered.namespace, NAMESPACE)
-    assert.equal(calls.registered.schema, Config)
-    assert.equal(calls.registered.spec.applies, 'live')
+test('activation declares the settings policy, the observer and the interceptor', async () => {
+  await withPlugin({}, ({ calls }) => {
+    assert.equal(calls.configured.length, 1, 'the plugin must ask the settings service for its policy')
+    assert.deepEqual(calls.configured[0].presentation, { auto: false })
+    assert.equal(calls.configured[0].owner, calls.fiber)
     assert.deepEqual(calls.listeners.map((entry) => entry.name), ['llm/stream'])
     assert.deepEqual(calls.listeners[0].options, { global: true })
-    assert.equal(calls.watchListeners.size, 1, 'the settings scope must be watched')
   })
 })
 
@@ -179,20 +201,26 @@ test('an observation failure never breaks the model call', async () => {
   })
 })
 
-test('the settings document is adopted live', async () => {
-  await withPlugin({}, ({ plugin, ctx }) => {
-    assert.deepEqual([...plugin.state.current.enabled], [...DEFAULT_ENABLED])
-    ctx.publish({ enabled: ['responses-reasoning-echo'], hosts: ['Relay.Example'], diagnostics: true })
-    assert.deepEqual([...plugin.state.current.enabled], ['responses-reasoning-echo'])
-    assert.deepEqual(plugin.state.current.hosts, ['relay.example'])
-    assert.equal(plugin.state.current.diagnostics, true)
-  })
+test('a settings edit is visible on the next fold', () => {
+  const live = referencedConfig({ diagnostics: false })
+  const { ctx } = fakeContext()
+  const plugin = setup(ctx, live.config)
+  assert.deepEqual([...plugin.current().enabled], [...DEFAULT_ENABLED])
+  assert.equal(plugin.current().diagnostics, false)
+
+  live.set('enabled', ['responses-reasoning-echo'])
+  live.set('hosts', ['Relay.Example'])
+  live.set('diagnostics', true)
+
+  assert.deepEqual([...plugin.current().enabled], ['responses-reasoning-echo'])
+  assert.deepEqual(plugin.current().hosts, ['relay.example'])
+  assert.equal(plugin.current().diagnostics, true)
 })
 
 test('a profile without a settings service still activates', async () => {
-  await withPlugin({ withSettings: false, entry: { enabled: ['responses-reasoning-echo'] } }, ({ plugin, calls }) => {
-    assert.equal(calls.registered, null)
-    assert.deepEqual([...plugin.state.current.enabled], ['responses-reasoning-echo'])
+  await withPlugin({ withSettings: false, config: { enabled: ['responses-reasoning-echo'] } }, ({ plugin, calls }) => {
+    assert.deepEqual(calls.configured, [])
+    assert.deepEqual([...plugin.current().enabled], ['responses-reasoning-echo'])
   })
 })
 
@@ -218,9 +246,4 @@ test('a profile without a webserver service registers no route', async () => {
   await withPlugin({ withWebServer: false }, ({ calls }) => {
     assert.deepEqual(calls.routes, [])
   })
-})
-
-test('the fold ignores an id this build no longer ships', () => {
-  const settings = normalizeSettings({ enabled: ['responses-reasoning-echo', 'retired'] })
-  assert.deepEqual([...settings.enabled], ['responses-reasoning-echo'])
 })

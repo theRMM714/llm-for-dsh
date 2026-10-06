@@ -138,12 +138,12 @@ Host 半是纯 ESM + Node 内置模块；路径一律用 `node:path` 组件拼�
 
 ## 与官方修复的关系
 
-本插件成立的三个前提，在 dsh 0.1.7-rc.2 上逐条核对过，**目前都还在**：
+本插件成立的三个前提，在 dsh 0.2.0-rc.2 上逐条核对过，**目前都还在**：
 
 | 位置 | 现状 |
 | --- | --- |
-| `pi-ai` 的 `dist/api/openai-responses-shared.js:138` | 只有 `block.thinkingSignature` 为真时才把思考项放进请求 |
+| `pi-ai` 的 `dist/api/openai-responses-shared.js:177-181` | 只有 `block.thinkingSignature` 为真时才把思考项放进请求 |
 | `dsh-llm/lib/index.js:2246` | 消息没有 `replayState` 时原样返回，状态不跨适配器携带 |
-| `dsh-llm-pi-ai/lib/index.js:242` | `replayState` 缺失时退化成 `foreignAssistant(message)` |
+| `dsh-llm-pi-ai/lib/index.js:241` | `replayState` 缺失时退化成 `foreignAssistant(message)` |
 
 一旦上游在签名缺失时也能回传思考项，本插件即可整包删除：它不改 harness 任何文件，卸载后行为与装前一致。这正是把修复做成「可勾选、可卸载列表」而不是直接改上游的原因。
